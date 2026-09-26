@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 
 use crate::protocol::{
     AGENT_IN_UI_URI, EXAMPLE_FILE_LOCUS_URI, EXAMPLE_PICKUP_URI, EXAMPLE_SHOW_HUMAN_URI, HANDS_URI,
-    PHYSICS_URI,
+    PHYSICS_URI, TIER_RULE,
 };
 
 pub fn openstory_help_schema() -> Value {
@@ -78,6 +78,11 @@ Sentences are SVO projections of acts — not intent labels. ui_control steers t
 | cost | token_usage \| daily_token_usage |
 | live | subscribe_session \| subscribe_tokens |
 | show-human | navigate_to (any event/graph) → where_is_user; ui_control low-level |
+| watch | subscribe_health \| fleet_presence |
+| diagnose | node_health → node_logs \| node_streams |
+| propose | tier 1 hands → ops.proposal.<hand> with evidence ids |
+
+Tier rule: {TIER_RULE}
 
 Call again with need="orient" (etc.) or topic="session_sentences" / "physics" / "ui".
 
@@ -124,7 +129,28 @@ Curriculum: {HANDS_URI}"#
 2. token_usage { session_id? , days? , model? }
 Includes cache fields when present. Read-only analytics."#
             .to_string(),
-        "live" | "stream" | "watch" => r#"# Motion: live
+        "watch" | "node-watch" => format!(
+            r#"# Motion: watch (the node)
+subscribe_health {{ interval_secs? }} → notifications/openstory/health on every verdict transition
+fleet_presence {{}} → every node's latest beat with age and stale
+Silence from subscribe_health means nothing changed. {TIER_RULE}"#
+        ),
+        "diagnose" | "node" | "health" => format!(
+            r#"# Motion: diagnose (the node)
+node_health {{}} → the health body with the node's verdict: level and findings, each with an id
+node_logs {{ since?, actor?, level?, limit? }} → the log ring; pass next back as since
+node_streams {{}} → bytes against caps; warn at 70 %, critical at 90 %
+Cite finding ids as evidence. {TIER_RULE}"#
+        ),
+        "propose" | "proposal" | "fix" => format!(
+            r#"# Motion: propose
+Tier 1 hands (node_reproject, node_verify, node_catch_up, node_prune) publish
+ops.proposal.<hand> with author, evidence (finding ids from node_health), and an idempotency key,
+then act; the node records ops.command.<hand> with the result. They refuse while the node is not serving.
+Tier 2 (restart_consumer, resize_stream, restart_nats, restart_node) is a proposal with evidence, never an act.
+{TIER_RULE}"#
+        ),
+        "live" | "stream" => r#"# Motion: live
 1. subscribe_session { session_id }  — CloudEvents as they land
 2. subscribe_tokens { session_id }   — running token tally
 Cancel via your client's notifications/cancelled. Does not rewrite history."#
@@ -173,6 +199,12 @@ Full: resources/read {AGENT_IN_UI_URI}
 Example: {EXAMPLE_SHOW_HUMAN_URI}"#
         ),
         "motions" => overview(),
+        "ops" | "node-ops" => format!(
+            "# Ops hands\n{}\n\n{}\n\n{}\n\nFull: resources/read {HANDS_URI} (Ops motions)",
+            motion_card("watch"),
+            motion_card("diagnose"),
+            motion_card("propose")
+        ),
         "session_story" => r#"# session_story
 WHEN: orient on one session — best single fact sheet
 MOTION: orient
@@ -256,6 +288,62 @@ mod tests {
         let t = v["text"].as_str().unwrap();
         assert!(t.contains("orient"));
         assert!(t.contains("session_story"));
+    }
+
+    /// M-09: the ops motions have cards, and the overview names them.
+    #[test]
+    fn help_knows_the_ops_motions() {
+        let t = openstory_help(json!({"need": "diagnose"})).unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        for hand in ["node_health", "node_logs", "node_streams"] {
+            assert!(t.contains(hand), "diagnose card names {hand}: {t}");
+        }
+        let t = openstory_help(json!({"need": "watch"})).unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            t.contains("subscribe_health") && t.contains("fleet_presence"),
+            "watch card: {t}"
+        );
+        let t = openstory_help(json!({"need": "propose"})).unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            t.contains("ops.proposal") && t.contains("evidence"),
+            "propose card: {t}"
+        );
+        let o = openstory_help(json!({})).unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        for motion in ["watch", "diagnose", "propose"] {
+            assert!(
+                o.contains(&format!("| {motion} ")),
+                "overview lists {motion}: {o}"
+            );
+        }
+        assert!(
+            o.contains(crate::protocol::TIER_RULE),
+            "overview states the tier rule"
+        );
+        let t = openstory_help(json!({"topic": "ops"})).unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(
+            t.contains("node_health") && t.contains(crate::protocol::TIER_RULE),
+            "ops topic: {t}"
+        );
+        // `live` keeps its own card; `watch` is the node's.
+        let live = openstory_help(json!({"need": "live"})).unwrap()["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(live.contains("subscribe_session"), "{live}");
     }
 
     #[test]

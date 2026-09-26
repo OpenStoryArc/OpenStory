@@ -60,6 +60,8 @@ pub struct PersistConsumer {
     /// Shared projection cache (read-only from this consumer's POV — it reads
     /// label/branch/event_count to assemble the SessionRow).
     projections: Arc<ProjectionCache>,
+    /// D-02: presence history in the data dir; None when it cannot be opened.
+    presence_log: Option<open_story_store::persistence::PresenceLog>,
     /// Shared project-id map — written here when `project_id` arrives on
     /// the batch envelope; read by other consumers / API.
     session_projects: Arc<DashMap<String, String>>,
@@ -91,7 +93,10 @@ impl PersistConsumer {
         session_project_names: Arc<DashMap<String, String>>,
         plan_store: PlanStore,
     ) -> Self {
+        let presence_log =
+            open_story_store::persistence::PresenceLog::new(session_store.data_dir()).ok();
         Self {
+            presence_log,
             event_store,
             session_store,
             projections,
@@ -112,9 +117,22 @@ impl PersistConsumer {
         project_id: Option<&str>,
     ) -> PersistResult {
         let event_store = &*self.event_store;
+        // P-02: presence is its own family. It lands in the presence
+        // table and nowhere else: no session, no event row, no FTS, no
+        // JSONL. Routed before any of that machinery runs.
+        if !events.is_empty() && events.iter().all(super::presence::is_presence) {
+            let persisted =
+                super::presence::store_presence(event_store, self.presence_log.as_ref(), events)
+                    .await;
+            return PersistResult {
+                persisted,
+                skipped: events.len() - persisted,
+            };
+        }
         let session_store = &self.session_store;
         let mut persisted = 0;
         let mut skipped = 0;
+        let mut by_agent: std::collections::HashMap<String, u64> = std::collections::HashMap::new();
 
         // Remember the project id for this session if the batch carries one.
         if let Some(pid) = project_id {
@@ -188,17 +206,36 @@ impl PersistConsumer {
             if is_plan_event(&vals[i]) {
                 if let Some(content) = extract_plan_content(&vals[i]) {
                     let timestamp = vals[i].get("time").and_then(|v| v.as_str()).unwrap_or("");
-                    let _ = self.plan_store.save(session_id, &content, timestamp);
+                    if let Err(e) = self.plan_store.save(session_id, &content, timestamp) {
+                        crate::logging::failed("plan_save", &e);
+                    }
                     let plan_id = format!("plan:{session_id}:{timestamp}");
-                    let _ = event_store.upsert_plan(&plan_id, session_id, &content).await;
+                    if let Err(e) = event_store
+                        .upsert_plan(&plan_id, session_id, &content)
+                        .await
+                    {
+                        crate::logging::failed("plan_upsert", &e);
+                    }
                 }
             }
 
             persisted += 1;
+            open_story_core::trace::mark("persist", ces[i], None, "persist");
+            *by_agent
+                .entry(ces[i].agent.as_deref().unwrap_or("unknown").to_string())
+                .or_insert(0) += 1;
+        }
+        // O-01: what landed, by the agent that produced it.
+        for (agent, n) in &by_agent {
+            crate::metrics::record_events_ingested_by_agent(agent, *n);
         }
 
-        let _ = session_store.append_batch(session_id, &new_vals);
-        let _ = event_store.index_fts_batch(&fts).await;
+        if let Err(e) = session_store.append_batch(session_id, &new_vals) {
+            crate::logging::failed("jsonl_append", &e);
+        }
+        if let Err(e) = event_store.index_fts_batch(&fts).await {
+            crate::logging::failed("fts_index", &e);
+        }
 
         // Upsert the session row AFTER the events are durable. Takes a
         // tight projection snapshot and drops the DashMap Ref before
@@ -275,9 +312,21 @@ impl PersistConsumer {
                 person_id,
                 principal_id,
             };
-            let _ = event_store.upsert_session(&row).await;
+            if let Err(e) = event_store.upsert_session(&row).await {
+                crate::logging::failed("session_upsert", &e);
+            }
         }
 
+        // L-03: a line about a session carries its id as a field, never
+        // only inside the message text.
+        tracing::info!(
+            event = "batch_persisted",
+            session_id,
+            persisted,
+            skipped,
+            project_id = project_id.unwrap_or(""),
+            "persisted batch"
+        );
         PersistResult { persisted, skipped }
     }
 }
@@ -585,9 +634,8 @@ mod tests {
     async fn persist_consumer_extracts_plan_from_exitplanmode_event() {
         let tmp = tempfile::tempdir().unwrap();
         let session_store = SessionStore::new(tmp.path()).unwrap();
-        let event_store: Arc<dyn EventStore> = Arc::new(
-            open_story_store::sqlite_store::SqliteStore::new(tmp.path()).unwrap(),
-        );
+        let event_store: Arc<dyn EventStore> =
+            Arc::new(open_story_store::sqlite_store::SqliteStore::new(tmp.path()).unwrap());
         let plans_dir = tmp.path().join("plans");
         let plan_store = open_story_store::plan_store::PlanStore::new(&plans_dir).unwrap();
         let mut consumer = PersistConsumer::new(
@@ -603,7 +651,9 @@ mod tests {
         payload.tool = Some("ExitPlanMode".to_string());
         payload.args = Some(json!({ "plan": "# Plan: Persist Extraction\n\nDo the thing." }));
         let data = EventData::with_payload(
-            json!({}), 0, "sess-plan".to_string(),
+            json!({}),
+            0,
+            "sess-plan".to_string(),
             AgentPayload::ClaudeCode(payload),
         );
         let ce = CloudEvent::new(
@@ -612,7 +662,10 @@ mod tests {
             data,
             Some("message.assistant.tool_use".into()),
             Some("evt-plan-1".to_string()),
-            None, None, None, Some("claude-code".into()),
+            None,
+            None,
+            None,
+            Some("claude-code".into()),
         );
 
         consumer.process_batch("sess-plan", &[ce], None).await;
@@ -629,14 +682,16 @@ mod tests {
     async fn persist_consumer_plan_extraction_is_idempotent_on_redelivery() {
         let tmp = tempfile::tempdir().unwrap();
         let session_store = SessionStore::new(tmp.path()).unwrap();
-        let event_store: Arc<dyn EventStore> = Arc::new(
-            open_story_store::sqlite_store::SqliteStore::new(tmp.path()).unwrap(),
-        );
+        let event_store: Arc<dyn EventStore> =
+            Arc::new(open_story_store::sqlite_store::SqliteStore::new(tmp.path()).unwrap());
         let plans_dir = tmp.path().join("plans");
         let plan_store = open_story_store::plan_store::PlanStore::new(&plans_dir).unwrap();
         let mut consumer = PersistConsumer::new(
-            event_store, session_store,
-            Arc::new(ProjectionCache::new(u64::MAX, 0)), Arc::new(DashMap::new()), Arc::new(DashMap::new()),
+            event_store,
+            session_store,
+            Arc::new(ProjectionCache::new(u64::MAX, 0)),
+            Arc::new(DashMap::new()),
+            Arc::new(DashMap::new()),
             plan_store,
         );
 
@@ -645,18 +700,30 @@ mod tests {
             payload.tool = Some("ExitPlanMode".to_string());
             payload.args = Some(json!({ "plan": "# Plan: Once\n\nBody." }));
             let data = EventData::with_payload(
-                json!({}), 0, "sess-dup-plan".to_string(),
+                json!({}),
+                0,
+                "sess-dup-plan".to_string(),
                 AgentPayload::ClaudeCode(payload),
             );
             CloudEvent::new(
-                "arc://test/sess-dup-plan".into(), "io.arc.event".into(), data,
-                Some("message.assistant.tool_use".into()), Some("evt-dup-plan".to_string()),
-                None, None, None, Some("claude-code".into()),
+                "arc://test/sess-dup-plan".into(),
+                "io.arc.event".into(),
+                data,
+                Some("message.assistant.tool_use".into()),
+                Some("evt-dup-plan".to_string()),
+                None,
+                None,
+                None,
+                Some("claude-code".into()),
             )
         };
 
-        consumer.process_batch("sess-dup-plan", &[build()], None).await;
-        consumer.process_batch("sess-dup-plan", &[build()], None).await;
+        consumer
+            .process_batch("sess-dup-plan", &[build()], None)
+            .await;
+        consumer
+            .process_batch("sess-dup-plan", &[build()], None)
+            .await;
 
         let reader = open_story_store::plan_store::PlanStore::new(&plans_dir).unwrap();
         assert_eq!(

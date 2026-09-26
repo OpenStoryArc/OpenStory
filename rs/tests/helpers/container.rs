@@ -131,6 +131,44 @@ pub async fn start_open_story(fixture_dir: &Path) -> OpenStoryContainer {
 ///
 /// Panics if the Docker image `open-story:test` doesn't exist.
 /// Build it first: `docker build -t open-story:test ./rs`
+/// Like `start_open_story`, with environment variables on the container
+/// (K-08 sets a tiny events cap this way).
+pub async fn start_open_story_with_env(
+    fixture_dir: &Path,
+    env: &[(&str, &str)],
+) -> OpenStoryContainer {
+    let now = filetime::FileTime::now();
+    for entry in std::fs::read_dir(fixture_dir).expect("failed to read fixture dir") {
+        let path = entry.expect("failed to read fixture entry").path();
+        let _ = filetime::set_file_mtime(&path, now);
+    }
+    let fixture_path = fixture_dir.canonicalize().expect("fixture dir must exist");
+    let mount_source = to_docker_path(&fixture_path);
+    let mut image = GenericImage::new(IMAGE_NAME, IMAGE_TAG)
+        .with_exposed_port(ContainerPort::Tcp(CONTAINER_PORT))
+        .with_wait_for(WaitFor::http(
+            HttpWaitStrategy::new("/api/sessions")
+                .with_port(ContainerPort::Tcp(CONTAINER_PORT))
+                .with_expected_status_code(200u16),
+        ))
+        .with_mount(Mount::bind_mount(mount_source, "/watch"));
+    for (k, v) in env {
+        image = image.with_env_var(*k, *v);
+    }
+    let container = image
+        .start()
+        .await
+        .expect("failed to start open-story container");
+    let host_port = container
+        .get_host_port_ipv4(CONTAINER_PORT)
+        .await
+        .expect("failed to get mapped port");
+    OpenStoryContainer {
+        container,
+        host_port,
+    }
+}
+
 pub async fn start_open_story_with_seeded_data(data_dir: &Path) -> OpenStoryContainer {
     // Touch fixture files so they have fresh mtimes. Reconciliation
     // doesn't filter by mtime, but other consumers downstream might.

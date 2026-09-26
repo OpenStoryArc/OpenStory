@@ -15,18 +15,29 @@ open-story = { path = ".." }
 open-story-bus = { path = "../bus" }
 open-story-core = { path = "../core" }
 open-story-store = { path = "../store" }
+open-story-server = { path = "../server" }
 anyhow = "1"
 chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4", features = ["derive", "env"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }
 toml = "0.8"
+tracing = "0.1"
+# B-06: jemalloc behind the default-on `jemalloc` feature; `-ctl` reads the
+# effective options back so the build can prove its MALLOC_CONF.
+tikv-jemallocator = { version = "0.7", optional = true }
+tikv-jemalloc-ctl = { version = "0.7", optional = true }
 
 [dev-dependencies]
+tracing-subscriber = { version = "0.3", default-features = false, features = ["fmt", "std"] }
+serde_json = "1"
 tempfile = "3"
 
 [features]
-default = []
+# jemalloc is the default allocator (B-06): `--no-default-features` keeps the
+# platform (glibc / macOS) allocator.
+default = ["jemalloc"]
+jemalloc = ["dep:tikv-jemallocator", "dep:tikv-jemalloc-ctl"]
 # Pass-through features so `cargo build -p open-story-cli --features mongo`
 # picks up the MongoDB backend in the store crate.
 encryption = ["open-story-store/encryption", "open-story/encryption"]

@@ -7,8 +7,10 @@
 //! Default implementation: `NatsBus` (NATS JetStream).
 
 pub mod accounts;
+pub mod health;
 pub mod nats_bus;
 pub mod noop_bus;
+pub mod split;
 
 // Re-export the async-nats JetStream context so server-side code
 // (admin module) can hold a typed reference without depending on
@@ -21,6 +23,36 @@ use open_story_core::cloud_event::CloudEvent;
 use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 
+/// One JetStream stream's size against its configured cap (H-04).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StreamStats {
+    pub name: String,
+    pub bytes: u64,
+    pub messages: u64,
+    /// The configured `max_bytes`; `None` when the stream is uncapped.
+    pub max_bytes: Option<i64>,
+    /// `bytes / max_bytes`, `None` when uncapped.
+    pub percent: Option<f64>,
+}
+
+impl StreamStats {
+    pub fn new(name: impl Into<String>, bytes: u64, messages: u64, max_bytes: i64) -> Self {
+        let cap = (max_bytes > 0).then_some(max_bytes);
+        let percent = cap.map(|c| bytes as f64 / c as f64);
+        StreamStats {
+            name: name.into(),
+            bytes,
+            messages,
+            max_bytes: cap,
+            percent,
+        }
+    }
+
+    pub fn percent(&self) -> Option<f64> {
+        self.percent
+    }
+}
+
 /// A batch of events to publish or received from the bus.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct IngestBatch {
@@ -32,6 +64,108 @@ pub struct IngestBatch {
 /// A subscription handle that receives event batches from the bus.
 pub struct BusSubscription {
     pub receiver: mpsc::Receiver<IngestBatch>,
+}
+
+/// Where a durable consumer starts the first time it is created (B-11).
+/// Once it exists, the server remembers its position and a restart resumes
+/// from what the actor has not acknowledged; this only decides the start of
+/// a consumer that does not exist yet (first boot after the upgrade, a new
+/// node, a consumer the server lost across a process restart).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StartFrom {
+    /// The whole stream: the actor is the only way what the stream holds
+    /// reaches the store (persist, patterns).
+    All,
+    /// What was published since this process started: the store was
+    /// replayed from what existed before, and the watcher publishes while
+    /// the node boots, before any consumer exists (projections, patterns).
+    SinceBoot,
+    /// Only what arrives from now: live readers only (broadcast).
+    New,
+    /// The last message on each subject: presence is a latest-beat table.
+    LastPerSubject,
+}
+
+/// A durable consumer's identity and first start (B-11).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DurableSpec {
+    /// Stable across restarts: see [`durable_name`].
+    pub name: String,
+    pub first_start: StartFrom,
+}
+
+/// The durable consumer name for `actor` on `host`: `os-{actor}-{host}`,
+/// restricted to the characters JetStream accepts in a consumer name
+/// (anything but ASCII letters, digits, `-` and `_` becomes `-`), at most
+/// 128 bytes. Pure.
+pub fn durable_name(actor: &str, host: &str) -> String {
+    let raw = format!("os-{actor}-{host}");
+    let mut name: String = raw
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '-' || c == '_' {
+                c
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    name.truncate(128);
+    name
+}
+
+/// How a delivered batch is acknowledged once its actor has handled it.
+/// `Acker::none()` for a bus without acknowledgements.
+pub struct Acker(Option<nats_bus::NatsAck>);
+
+impl Acker {
+    pub fn none() -> Self {
+        Acker(None)
+    }
+
+    pub(crate) fn nats(ack: nats_bus::NatsAck) -> Self {
+        Acker(Some(ack))
+    }
+
+    /// Tell the bus the batch is handled; a failure is logged, never fatal
+    /// (the message is redelivered and the actors are idempotent).
+    pub async fn ack(self) {
+        if let Some(a) = self.0 {
+            a.ack().await;
+        }
+    }
+}
+
+/// One batch from a durable subscription, with its acknowledgement.
+pub struct Delivery {
+    pub batch: IngestBatch,
+    pub ack: Acker,
+}
+
+/// A durable subscription: batches arrive with the handle that
+/// acknowledges them (B-11). The actor acks after it has handled a batch.
+pub struct DurableSubscription {
+    pub receiver: mpsc::Receiver<Delivery>,
+}
+
+impl DurableSubscription {
+    /// Wrap a plain subscription whose batches need no acknowledgement.
+    pub fn unacked(sub: BusSubscription) -> Self {
+        let mut rx = sub.receiver;
+        let (tx, out) = mpsc::channel(16);
+        tokio::spawn(async move {
+            while let Some(batch) = rx.recv().await {
+                let d = Delivery {
+                    batch,
+                    ack: Acker::none(),
+                };
+                if tx.send(d).await.is_err() {
+                    break;
+                }
+            }
+        });
+        DurableSubscription { receiver: out }
+    }
 }
 
 /// The architectural boundary between event producers and consumers.
@@ -58,6 +192,33 @@ pub trait Bus: Send + Sync + 'static {
     /// Returns a BusSubscription that yields batches as they arrive.
     async fn subscribe(&self, pattern: &str) -> Result<BusSubscription>;
 
+    /// Subscribe to `pattern` on a named stream that is not the events
+    /// family (P-02: `presence`). A bus with no stream notion falls back to
+    /// its plain subscribe.
+    async fn subscribe_stream(&self, _stream: &str, pattern: &str) -> Result<BusSubscription> {
+        self.subscribe(pattern).await
+    }
+
+    /// Subscribe through a durable consumer named by `spec` (B-11):
+    /// `stream` is `"events"` for the events family (own, local, and the
+    /// fleet's mirror) or a named stream such as `"presence"`. Each batch
+    /// arrives with its acknowledgement; a restart resumes from what was not
+    /// acknowledged. A bus without durable consumers falls back to its
+    /// plain subscription, with acknowledgements that do nothing.
+    async fn subscribe_durable(
+        &self,
+        stream: &str,
+        pattern: &str,
+        _spec: &DurableSpec,
+    ) -> Result<DurableSubscription> {
+        let sub = if stream == "events" {
+            self.subscribe(pattern).await?
+        } else {
+            self.subscribe_stream(stream, pattern).await?
+        };
+        Ok(DurableSubscription::unacked(sub))
+    }
+
     /// Replay all historical events matching a pattern.
     /// Used for boot recovery — rebuilds store state from the event log.
     async fn replay(&self, pattern: &str) -> Result<Vec<IngestBatch>>;
@@ -67,6 +228,12 @@ pub trait Bus: Send + Sync + 'static {
     /// through the bus or use direct ingest as fallback.
     fn is_active(&self) -> bool {
         true
+    }
+
+    /// Size of each stream this bus declares, against its cap (H-04).
+    /// Empty for a bus with no JetStream behind it.
+    async fn stream_stats(&self) -> Vec<StreamStats> {
+        vec![]
     }
 
     /// Optional JetStream context handle for admin/introspection use.
@@ -86,6 +253,36 @@ pub trait Bus: Send + Sync + 'static {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn durable_name_is_stable_and_a_legal_consumer_name() {
+        assert_eq!(durable_name("persist", "mac-mini"), "os-persist-mac-mini");
+        assert_eq!(
+            durable_name("presence", "box.local with/slash*>"),
+            "os-presence-box-local-with-slash--"
+        );
+        assert_eq!(durable_name("persist", "h"), durable_name("persist", "h"));
+        assert_ne!(durable_name("persist", "h"), durable_name("patterns", "h"));
+        assert!(durable_name("persist", &"x".repeat(400)).len() <= 128);
+    }
+
+    #[tokio::test]
+    async fn a_bus_without_durables_delivers_plain_batches_with_a_noop_ack() {
+        let (tx, rx) = mpsc::channel(4);
+        let mut sub = DurableSubscription::unacked(BusSubscription { receiver: rx });
+        tx.send(IngestBatch {
+            session_id: "s".into(),
+            project_id: "p".into(),
+            events: vec![],
+        })
+        .await
+        .unwrap();
+        drop(tx);
+        let d = sub.receiver.recv().await.expect("one delivery");
+        assert_eq!(d.batch.session_id, "s");
+        d.ack.ack().await;
+        assert!(sub.receiver.recv().await.is_none(), "ends with its source");
+    }
 
     #[test]
     fn ingest_batch_serialization_round_trip() {

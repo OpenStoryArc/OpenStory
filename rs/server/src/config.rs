@@ -296,6 +296,21 @@ pub struct Config {
     pub broadcast_channel_size: usize,
     /// Enable Prometheus metrics endpoint at /metrics. Default: false.
     pub metrics_enabled: bool,
+    /// Log line format: "text" (default, for a terminal) or "json" (one
+    /// object per line for agents, log rings, and collectors). Env:
+    /// OPEN_STORY_LOG_FORMAT. See logging::LogFormat.
+    pub log_format: String,
+    /// Seconds between presence beats on `presence.{host}.{principal}`
+    /// (P-01). Default 15. Env: `OPEN_STORY_PRESENCE_INTERVAL_SECS`.
+    pub presence_interval_secs: u64,
+    /// When the consumer actors subscribe (B-05): "serving" (default —
+    /// after the boot replay, so the two heaps never grow at once) or
+    /// "boot" (at once). Env: `OPEN_STORY_CONSUMERS_START`.
+    pub consumers_start: String,
+    /// Share of events that carry a span per stage (O-03), 0 to 1.
+    /// Default 0.01; everything under `RUST_LOG=trace`. Env:
+    /// `OPEN_STORY_TRACE_SAMPLE_RATE`.
+    pub trace_sample_rate: f64,
     /// Auto-delete sessions older than this many days on boot. 0 = no cleanup.
     pub retention_days: u32,
 
@@ -401,7 +416,11 @@ impl Default for Config {
             payload_cache_bytes: 256_000_000,
             stale_threshold_secs: 300,
             broadcast_channel_size: 256,
-            metrics_enabled: false,
+            metrics_enabled: true,
+            log_format: "text".to_string(),
+            presence_interval_secs: 15,
+            consumers_start: "serving".to_string(),
+            trace_sample_rate: 0.01,
             retention_days: 0,
             person: None,
         }
@@ -614,7 +633,19 @@ impl Config {
 
 # ── Observability ──
 # Enable Prometheus metrics endpoint at /metrics.
-# metrics_enabled = false
+# metrics_enabled = true
+# Log line format: "text" (terminal) or "json" (one object per line).
+# log_format = "text"
+
+# Seconds between presence beats on the bus (P-01).
+# presence_interval_secs = 15
+
+# When the consumer actors subscribe: "serving" (after the boot replay,
+# the default) or "boot" (at once).
+# consumers_start = "serving"
+
+# Share of events that carry a span per stage (O-03); all under RUST_LOG=trace.
+# trace_sample_rate = 0.01
 
 # ── Lifecycle ──
 # Auto-delete sessions older than this many days on boot. 0 = no cleanup.
@@ -653,7 +684,8 @@ impl Config {
     /// prompt for.
     pub fn apply_answers(mut self, a: WizardAnswers) -> Config {
         self.watch_backfill_hours = days_to_backfill_hours(a.days_history);
-        self.max_initial_records = recommended_initial_records(a.days_history, self.max_initial_records);
+        self.max_initial_records =
+            recommended_initial_records(a.days_history, self.max_initial_records);
         self.watch_dir = a.watch_dir;
         if let Some(p) = a.pi_watch_dir {
             self.pi_watch_dir = p;
@@ -800,15 +832,18 @@ mod tests {
         assert_eq!(config.truncation_threshold, 100_000);
         assert_eq!(config.stale_threshold_secs, 300);
         assert_eq!(config.broadcast_channel_size, 256);
-        assert!(!config.metrics_enabled);
-        assert!(config.person.is_none(), "person defaults to None — first-boot bootstrap fills it");
+        assert!(config.metrics_enabled, "O-01: metrics on by default");
+        assert!(
+            config.person.is_none(),
+            "person defaults to None — first-boot bootstrap fills it"
+        );
     }
 
     #[test]
     fn cache_bounds_have_sane_defaults() {
         let c = Config::default();
         assert_eq!(c.projection_cache_bytes, 4_000_000_000); // 4 GB
-        assert_eq!(c.payload_cache_bytes, 256_000_000);      // 256 MB
+        assert_eq!(c.payload_cache_bytes, 256_000_000); // 256 MB
         assert_eq!(c.working_set_days, 7);
     }
 
@@ -898,6 +933,10 @@ mod tests {
             stale_threshold_secs: 600,
             broadcast_channel_size: 512,
             metrics_enabled: true,
+            log_format: "text".into(),
+            presence_interval_secs: 15,
+            consumers_start: "serving".into(),
+            trace_sample_rate: 0.01,
             retention_days: 90,
             person: None,
         };
@@ -926,7 +965,7 @@ mod tests {
             config.allowed_origins.is_empty(),
             "allowed_origins should default to empty"
         );
-        assert!(!config.metrics_enabled);
+        assert!(config.metrics_enabled, "O-01: metrics on by default");
     }
 
     // ── person section round-trip ──────────────────────────────────────
@@ -966,7 +1005,10 @@ display_name = "Hetzner (Bobby)"
 agent = "openclaw"
 "#;
         let config: Config = toml::from_str(toml_input).unwrap();
-        let person = config.person.clone().expect("[person] section should parse");
+        let person = config
+            .person
+            .clone()
+            .expect("[person] section should parse");
         assert_eq!(person.id, "person-uuid-001");
         assert_eq!(person.display_name, "Max");
         assert_eq!(person.email, "max@example.test");
@@ -1002,7 +1044,10 @@ agent = "openclaw"
 
         config.ensure_person_bootstrap(&path);
 
-        let person = config.person.as_ref().expect("bootstrap must populate person");
+        let person = config
+            .person
+            .as_ref()
+            .expect("bootstrap must populate person");
         assert!(!person.id.is_empty(), "person.id must be populated");
         assert_eq!(person.display_name, "You");
         assert_eq!(person.principals.len(), 1, "exactly one default principal");
@@ -1041,8 +1086,10 @@ agent = "openclaw"
     fn ensure_person_bootstrap_preserves_explicit_local_principal_id() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("config.toml");
-        let mut config = Config::default();
-        config.local_principal_id = "pinned-by-operator".into();
+        let mut config = Config {
+            local_principal_id: "pinned-by-operator".into(),
+            ..Config::default()
+        };
         config.ensure_person_bootstrap(&path);
         assert_eq!(
             config.local_principal_id, "pinned-by-operator",
@@ -1077,16 +1124,27 @@ agent = "openclaw"
 
         // Any one of these revokes trust.
         assert!(
-            !Config { host: "0.0.0.0".into(), ..Config::default() }.is_trusted_local(),
+            !Config {
+                host: "0.0.0.0".into(),
+                ..Config::default()
+            }
+            .is_trusted_local(),
             "LAN/public bind is not trusted-local"
         );
         assert!(
-            !Config { api_token: "secret".into(), ..Config::default() }.is_trusted_local(),
+            !Config {
+                api_token: "secret".into(),
+                ..Config::default()
+            }
+            .is_trusted_local(),
             "an api_token means access is gated → not the trusted single-user case"
         );
         assert!(
-            !Config { nats_leaf_url: "nats://hub:7422".into(), ..Config::default() }
-                .is_trusted_local(),
+            !Config {
+                nats_leaf_url: "nats://hub:7422".into(),
+                ..Config::default()
+            }
+            .is_trusted_local(),
             "configured hub → networked → not trusted-local"
         );
     }
@@ -1124,9 +1182,11 @@ agent = "openclaw"
     fn ensure_person_bootstrap_preserves_existing_config_fields() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("config.toml");
-        let mut config = Config::default();
-        config.port = 9999;
-        config.api_token = "test-token".into();
+        let mut config = Config {
+            port: 9999,
+            api_token: "test-token".into(),
+            ..Config::default()
+        };
         config.ensure_person_bootstrap(&path);
 
         let written: Config = toml::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
@@ -1205,9 +1265,16 @@ matchers = {}
     #[test]
     fn recommended_initial_records_scales_and_caps_for_large_window() {
         let r30 = recommended_initial_records(30, 2000);
-        assert!(r30 > 2000, "30-day window should scale above baseline, got {r30}");
+        assert!(
+            r30 > 2000,
+            "30-day window should scale above baseline, got {r30}"
+        );
         assert!(r30 <= 10_000, "must stay capped at 10k, got {r30}");
-        assert_eq!(recommended_initial_records(365, 2000), 10_000, "wide window caps at 10k");
+        assert_eq!(
+            recommended_initial_records(365, 2000),
+            10_000,
+            "wide window caps at 10k"
+        );
     }
 
     #[test]
@@ -1298,7 +1365,10 @@ matchers = {}
             data_dir: "./data".into(),
         };
         let config = base.apply_answers(answers);
-        assert_eq!(config.api_token, "keep-me", "wizard must not clobber api_token");
+        assert_eq!(
+            config.api_token, "keep-me",
+            "wizard must not clobber api_token"
+        );
         assert_eq!(config.nats_url, "nats://custom:4222");
         assert_eq!(config.retention_days, 90);
     }

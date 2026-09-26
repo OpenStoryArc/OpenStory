@@ -9,8 +9,12 @@
 //! Same byte-accounting shape as `PayloadCache`, plus two eviction rules the
 //! payload cache doesn't have:
 //!   1. a **pinned** session (live / streaming) is never evicted;
-//!   2. if `working_set_days > 0`, a session touched within that window is
-//!      never evicted.
+//!   2. if `working_set_days > 0`, a session inside the working set is never
+//!      evicted — inside means read or live-appended within the window, or
+//!      its own last event (the projection's `last_event_at`) within the
+//!      window. A boot replay's walk is neither (B-09): it appends without
+//!      touching recency, so a cold session is evictable the moment the
+//!      budget says so, and a hot one stays by its own timestamps.
 //!
 //! When *every* over-budget candidate is protected (all pinned, or all inside
 //! the working-set window), the cache **overshoots** its budget rather than
@@ -42,8 +46,9 @@ use std::time::{Duration, Instant};
 pub struct ProjectionCache {
     /// The projections themselves.
     map: DashMap<String, SessionProjection>,
-    /// Recency side-table: id -> (monotonic tick, last-access instant).
-    access: DashMap<String, (u64, Instant)>,
+    /// Recency side-table: id -> (monotonic tick, last real access). The
+    /// instant is `None` for an entry only a replay has walked (B-09).
+    access: DashMap<String, (u64, Option<Instant>)>,
     /// Pin **ref-counts** by session id — an id with count > 0 is never
     /// evicted. Ref-counted (not a set) so protections compose: a transient
     /// pin (e.g. `get_or_rebuild` guarding a just-rebuilt entry against its own
@@ -93,11 +98,18 @@ impl ProjectionCache {
     fn sub_bytes(&self, n: u64) {
         let _ = self
             .bytes
-            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| Some(b.saturating_sub(n)));
+            .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |b| {
+                Some(b.saturating_sub(n))
+            });
     }
 
     pub fn resident_bytes(&self) -> u64 {
         self.bytes.load(Ordering::Relaxed)
+    }
+
+    /// The byte budget this cache evicts toward.
+    pub fn max_bytes(&self) -> u64 {
+        self.max_bytes
     }
 
     pub fn resident_sessions(&self) -> usize {
@@ -159,6 +171,27 @@ impl ProjectionCache {
     where
         F: FnOnce(&mut SessionProjection) -> R,
     {
+        self.append_inner(id, f, true)
+    }
+
+    /// `append_or_insert` for a boot replay (B-09): the walk is not an
+    /// access. The entry keeps its LRU tick but no access instant, so the
+    /// working-set window judges it by the session's own `last_event_at`
+    /// alone, and an out-of-window session is evictable as soon as the
+    /// budget says so. A replay pins the session it is walking
+    /// (`pin_live` / `unpin_live`) so a half-built projection is never the
+    /// victim.
+    pub fn append_untouched<F, R>(&self, id: &str, f: F) -> R
+    where
+        F: FnOnce(&mut SessionProjection) -> R,
+    {
+        self.append_inner(id, f, false)
+    }
+
+    fn append_inner<F, R>(&self, id: &str, f: F, touch: bool) -> R
+    where
+        F: FnOnce(&mut SessionProjection) -> R,
+    {
         let (old_bytes, new_bytes, ret) = {
             let mut entry = self
                 .map
@@ -170,9 +203,15 @@ impl ProjectionCache {
             (old, new, ret)
         };
         let t = self.tick();
-        self.access.insert(id.to_string(), (t, Instant::now()));
+        let mut a = self.access.entry(id.to_string()).or_insert((t, None));
+        a.0 = t;
+        if touch {
+            a.1 = Some(Instant::now());
+        }
+        drop(a);
         if new_bytes >= old_bytes {
-            self.bytes.fetch_add(new_bytes - old_bytes, Ordering::Relaxed);
+            self.bytes
+                .fetch_add(new_bytes - old_bytes, Ordering::Relaxed);
         } else {
             self.sub_bytes(old_bytes - new_bytes);
         }
@@ -220,6 +259,13 @@ impl ProjectionCache {
         self.pins.get(id).map(|c| *c > 0).unwrap_or(false)
     }
 
+    /// Look up a cached projection without marking it used (B-09): what a
+    /// boot replay reads after its walk, so the read does not put a cold
+    /// session inside the working-set window.
+    pub fn peek(&self, id: &str) -> Option<Ref<'_, String, SessionProjection>> {
+        self.map.get(id)
+    }
+
     /// Look up a cached projection, marking it most-recently-used on a hit.
     pub fn get(&self, id: &str) -> Option<Ref<'_, String, SessionProjection>> {
         let r = self.map.get(id)?;
@@ -228,7 +274,7 @@ impl ProjectionCache {
         // than the one `r` borrows — no self-deadlock.
         if let Some(mut a) = self.access.get_mut(id) {
             a.0 = t;
-            a.1 = Instant::now();
+            a.1 = Some(Instant::now());
         }
         Some(r)
     }
@@ -248,7 +294,7 @@ impl ProjectionCache {
         let t = self.tick();
         // Set recency before inserting into the value map so any concurrent
         // evictor that sees the entry also sees a tick for it.
-        self.access.insert(id.clone(), (t, Instant::now()));
+        self.access.insert(id.clone(), (t, Some(Instant::now())));
         if let Some(old) = self.map.insert(id, p) {
             // Overwrite: drop the replaced projection's contribution, so the
             // net delta is (new - old), not accumulated.
@@ -266,6 +312,11 @@ impl ProjectionCache {
     fn evict_to_budget(&self) {
         while self.bytes.load(Ordering::Relaxed) > self.max_bytes {
             let now = Instant::now();
+            // The window as a wall-clock cutoff for a session's own recency.
+            let cutoff = self
+                .working_set
+                .and_then(|w| chrono::Duration::from_std(w).ok())
+                .map(|w| chrono::Utc::now() - w);
             // Pick the min-tick (least-recently-used) id that is NOT pinned and
             // NOT within the working-set window. Iterating `map` locks its
             // shards; the per-key `pins`/`access` lookups touch *other* maps and
@@ -280,12 +331,19 @@ impl ProjectionCache {
                     if self.is_pinned(id) {
                         return None; // pinned live session — never evict
                     }
+                    // Inside the working set by its own last event — protected,
+                    // whoever last touched it (B-09).
+                    if let (Some(cutoff), Some(last_event)) = (cutoff, e.value().last_event_at()) {
+                        if last_event >= cutoff {
+                            return None;
+                        }
+                    }
                     match self.access.get(id) {
                         Some(a) => {
                             let (tick, last) = *a;
-                            if let Some(window) = self.working_set {
+                            if let (Some(window), Some(last)) = (self.working_set, last) {
                                 if now.duration_since(last) < window {
-                                    return None; // within working set — protected
+                                    return None; // read or live-appended within the window
                                 }
                             }
                             Some((tick, id.clone()))
@@ -357,49 +415,60 @@ mod tests {
         event_id.split("-e").next().unwrap_or(event_id).to_string()
     }
 
-    /// Build a `SessionProjection` whose `heap_bytes()` is ~= `target`, by
-    /// appending assistant-text events (each contributes ~256 overhead + text
-    /// length) until the target is reached.
+    /// Build a `SessionProjection` whose `heap_bytes()` is >= `target` and
+    /// within 20 % of it: one assistant-text event whose text is sized to
+    /// the target minus what an event costs on its own (measured, not
+    /// assumed — B-09 made `heap_bytes` count every container).
     fn proj_of_bytes(id: &str, target: u64) -> SessionProjection {
-        let mut p = SessionProjection::new(id);
-        let mut seq = 1u64;
-        while p.heap_bytes() < target {
-            let remaining = target - p.heap_bytes();
-            // Each event adds ~256 overhead; size the text to fill the rest.
-            let text_len = remaining.saturating_sub(256).max(1) as usize;
-            p.append(&raw_event(
-                &format!("{id}-e{seq}"),
-                seq,
+        let probe_event = |text_len: usize| {
+            raw_event(
+                &format!("{id}-e1"),
+                1,
                 "message.assistant.text",
                 json!({"raw": {"type": "assistant", "message": {"model": "m",
                        "content": [{"type": "text", "text": "x".repeat(text_len)}]}}}),
-            ));
-            seq += 1;
-        }
+            )
+        };
+        let mut probe = SessionProjection::new(id);
+        probe.append(&probe_event(1));
+        let overhead = probe.heap_bytes();
+        let mut p = SessionProjection::new(id);
+        p.append(&probe_event(target.saturating_sub(overhead).max(1) as usize));
         p
     }
+
+    /// One projection's worth in the budget specs below (a `proj_of_bytes`
+    /// unit). The specs size budgets in units so they hold whatever a record
+    /// costs.
+    const UNIT: u64 = 8_000;
 
     #[test]
     fn proj_of_bytes_hits_target() {
         // Sanity: the helper produces a projection near the requested size.
-        let p = proj_of_bytes("s", 800);
+        let p = proj_of_bytes("s", UNIT);
         let n = p.heap_bytes();
-        assert!((800..1100).contains(&n), "heap_bytes was {n}, expected ~800");
+        assert!(
+            (UNIT * 9 / 10..UNIT * 12 / 10).contains(&n),
+            "heap_bytes was {n}, expected ~{UNIT}"
+        );
     }
 
     #[test]
     fn evicts_lru_cold_but_never_pinned() {
-        // Budget 2000 holds two ~800-byte projections; a third forces eviction
-        // of the least-recently-used *unpinned* one. (The brief's literal 1500
-        // can't hold live+new together, which would wrongly evict `new`; 2000
-        // keeps the LRU-vs-pin scenario honest with true ~800-byte projections.)
-        let c = ProjectionCache::new(2000, 0);
-        c.insert("cold".into(), proj_of_bytes("cold", 800));
+        // A 2.5-unit budget holds two one-unit projections; a third forces eviction
+        // of the least-recently-used *unpinned* one. (A 2-unit budget could not
+        // hold live+new together and would wrongly evict `new`; 2.5 units keeps
+        // the LRU-vs-pin scenario honest.)
+        let c = ProjectionCache::new(UNIT * 5 / 2, 0);
+        c.insert("cold".into(), proj_of_bytes("cold", UNIT));
         c.pin_live("live");
-        c.insert("live".into(), proj_of_bytes("live", 800));
+        c.insert("live".into(), proj_of_bytes("live", UNIT));
         let _ = c.get("live"); // touch → live is now more-recently-used than cold
-        c.insert("new".into(), proj_of_bytes("new", 800)); // over budget → evict LRU cold
-        assert!(!c.contains("cold"), "cold is the LRU unpinned entry — evicted");
+        c.insert("new".into(), proj_of_bytes("new", UNIT)); // over budget → evict LRU cold
+        assert!(
+            !c.contains("cold"),
+            "cold is the LRU unpinned entry — evicted"
+        );
         assert!(c.contains("live"), "pinned live is never evicted");
         assert!(c.contains("new"), "just-inserted new stays");
         assert!(c.evictions() >= 1);
@@ -407,18 +476,22 @@ mod tests {
 
     #[test]
     fn overshoots_when_all_pinned_rather_than_evicting_live() {
-        // Budget 1000, two ~800-byte pinned projections → 1600 > 1000, but both
+        // A 1.25-unit budget, two one-unit pinned projections → over budget, but both
         // are pinned live. The cache must overshoot, not drop a live session.
-        let c = ProjectionCache::new(1000, 0);
+        let c = ProjectionCache::new(UNIT * 5 / 4, 0);
         c.pin_live("a");
-        c.insert("a".into(), proj_of_bytes("a", 800));
+        c.insert("a".into(), proj_of_bytes("a", UNIT));
         c.pin_live("b");
-        c.insert("b".into(), proj_of_bytes("b", 800));
+        c.insert("b".into(), proj_of_bytes("b", UNIT));
         assert!(c.contains("a"), "pinned a not evicted");
         assert!(c.contains("b"), "pinned b not evicted");
-        assert_eq!(c.evictions(), 0, "no eviction when every candidate is pinned");
+        assert_eq!(
+            c.evictions(),
+            0,
+            "no eviction when every candidate is pinned"
+        );
         assert!(
-            c.resident_bytes() > 1000,
+            c.resident_bytes() > UNIT * 5 / 4,
             "overshoots budget rather than evicting a live session"
         );
     }
@@ -427,28 +500,34 @@ mod tests {
     fn working_set_window_protects_recently_touched() {
         // working_set_days=1: everything inserted "now" is inside the window,
         // so nothing is evictable even over budget → overshoot.
-        let c = ProjectionCache::new(1000, 1);
-        c.insert("a".into(), proj_of_bytes("a", 800));
-        c.insert("b".into(), proj_of_bytes("b", 800)); // 1600 > 1000 but both fresh
+        let c = ProjectionCache::new(UNIT * 5 / 4, 1);
+        c.insert("a".into(), proj_of_bytes("a", UNIT));
+        c.insert("b".into(), proj_of_bytes("b", UNIT)); // 1600 > 1000 but both fresh
         assert!(c.contains("a"), "a is within the working-set window");
         assert!(c.contains("b"), "b is within the working-set window");
         assert_eq!(c.evictions(), 0);
-        assert!(c.resident_bytes() > 1000, "overshoots rather than evicting a hot session");
+        assert!(
+            c.resident_bytes() > UNIT * 5 / 4,
+            "overshoots rather than evicting a hot session"
+        );
     }
 
     #[test]
     fn overwrite_replaces_byte_accounting() {
         // Reinserting the same id must net (new - old), not accumulate.
         let c = ProjectionCache::new(1_000_000, 0);
-        c.insert("k".into(), proj_of_bytes("k", 1000));
+        c.insert("k".into(), proj_of_bytes("k", UNIT * 2));
         let big = c.resident_bytes();
 
-        let small = proj_of_bytes("k", 400);
+        let small = proj_of_bytes("k", UNIT);
         let small_bytes = small.heap_bytes();
         c.insert("k".into(), small);
 
         assert_eq!(c.resident_sessions(), 1, "overwrite keeps a single entry");
-        assert!(c.resident_bytes() < big, "smaller projection shrinks resident bytes");
+        assert!(
+            c.resident_bytes() < big,
+            "smaller projection shrinks resident bytes"
+        );
         assert_eq!(
             c.resident_bytes(),
             small_bytes,
@@ -456,14 +535,66 @@ mod tests {
         );
     }
 
+    /// B-09 (b): a replay-style walk (`append_untouched`) of sessions whose
+    /// own events are older than the window must leave them evictable — the
+    /// cache holds at most the budget's worth of them, and a session whose
+    /// own events are inside the window stays.
+    #[test]
+    fn replay_walk_does_not_protect_out_of_window_sessions() {
+        let old_event = |sid: &str, seq: u64, when: &str| {
+            let mut e = raw_event(
+                &format!("{sid}-e{seq}"),
+                seq,
+                "message.assistant.text",
+                json!({"raw": {"type": "assistant", "message": {"model": "m",
+                       "content": [{"type": "text", "text": "y".repeat(2000)}]}}}),
+            );
+            e["time"] = json!(when);
+            e
+        };
+        let c = ProjectionCache::new(UNIT * 20, 7);
+        let stale = (chrono::Utc::now() - chrono::Duration::days(30)).to_rfc3339();
+        let fresh = chrono::Utc::now().to_rfc3339();
+        for i in 0..100 {
+            let sid = format!("old{i:03}");
+            c.pin_live(&sid);
+            for seq in 1..=3 {
+                let e = old_event(&sid, seq, &stale);
+                c.append_untouched(&sid, |p| p.append(&e));
+            }
+            c.unpin_live(&sid);
+        }
+        c.pin_live("hot");
+        for seq in 1..=3 {
+            let e = old_event("hot", seq, &fresh);
+            c.append_untouched("hot", |p| p.append(&e));
+        }
+        c.unpin_live("hot");
+        assert!(
+            c.contains("hot"),
+            "inside the window by its own events — stays"
+        );
+        assert!(
+            c.resident_sessions() < 40,
+            "{} resident: the walk must not protect stale sessions",
+            c.resident_sessions()
+        );
+        assert!(c.evictions() >= 60, "{} evictions", c.evictions());
+        assert!(
+            c.resident_bytes() <= UNIT * 20 + UNIT * 2,
+            "resident bytes {} stay near the budget",
+            c.resident_bytes()
+        );
+    }
+
     #[test]
     fn get_refreshes_recency_so_reread_survives_eviction() {
         // a and b fit (1600 <= 2000); touch a; inserting c evicts the true LRU b.
-        let c = ProjectionCache::new(2000, 0);
-        c.insert("a".into(), proj_of_bytes("a", 800));
-        c.insert("b".into(), proj_of_bytes("b", 800));
+        let c = ProjectionCache::new(UNIT * 5 / 2, 0);
+        c.insert("a".into(), proj_of_bytes("a", UNIT));
+        c.insert("b".into(), proj_of_bytes("b", UNIT));
         assert!(c.get("a").is_some()); // a is now more-recently-used than b
-        c.insert("cc".into(), proj_of_bytes("cc", 800)); // over budget → evict LRU (b)
+        c.insert("cc".into(), proj_of_bytes("cc", UNIT)); // over budget → evict LRU (b)
         assert!(c.contains("a"), "a was just read — survives");
         assert!(!c.contains("b"), "b is the true LRU — evicted");
         assert!(c.contains("cc"), "cc newly inserted — stays");

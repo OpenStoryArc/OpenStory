@@ -130,6 +130,9 @@ async fn handle_line<S: Subscribe>(
             "subscribe_ui_state" => {
                 handle_subscribe_ui_state(parsed, server, out, subs).await;
             }
+            "subscribe_health" => {
+                handle_subscribe_health(parsed, server, out, subs).await;
+            }
             _ => {
                 let result = crate::tools::dispatch_query_tool(server, name, args).await;
                 let response = crate::protocol::JsonRpcResponse::success(id, result);
@@ -287,6 +290,86 @@ async fn handle_subscribe_ui_state<S: Subscribe>(
             {
                 break;
             }
+        }
+    });
+
+    subs.lock().await.insert(id_key, handle);
+}
+
+/// M-05: poll the node's verdict and tell the client only when it moves.
+async fn handle_subscribe_health<S: Subscribe>(
+    parsed: Value,
+    server: &Server<S>,
+    out: &mpsc::Sender<String>,
+    subs: &Arc<Mutex<HashMap<String, tokio::task::JoinHandle<()>>>>,
+) {
+    let id = parsed.get("id").cloned().unwrap_or(Value::Null);
+    let id_key = id_as_key(&id);
+    let api_base = server.api_base.trim_end_matches('/').to_string();
+    if api_base.trim().is_empty() {
+        let resp = crate::protocol::JsonRpcResponse::failure(
+            id,
+            crate::protocol::error_code::INTERNAL_ERROR,
+            "subscribe_health unavailable: the MCP has no API base configured (set OPENSTORY_API_URL)",
+        );
+        let _ = out.send(serde_json::to_string(&resp).unwrap()).await;
+        return;
+    }
+    let interval_secs = parsed
+        .get("params")
+        .and_then(|p| p.get("arguments"))
+        .and_then(|a| a.get("interval_secs"))
+        .and_then(|v| v.as_f64())
+        .filter(|s| *s > 0.0)
+        .unwrap_or(15.0);
+    let interval = std::time::Duration::from_secs_f64(interval_secs);
+    let stream_id = uuid::Uuid::new_v4().to_string();
+
+    let mut last = crate::tools::ops::read_verdict(&api_base).await;
+    let result = json!({
+        "isError": false,
+        "content": [{
+            "type": "text",
+            "text": serde_json::to_string(&json!({
+                "stream_id": stream_id,
+                "status": "started",
+                "following": "health — verdict transitions and findings added or cleared",
+                "interval_secs": interval_secs,
+                "verdict": last,
+            })).unwrap(),
+        }]
+    });
+    let response = crate::protocol::JsonRpcResponse::success(id, result);
+    let _ = out.send(serde_json::to_string(&response).unwrap()).await;
+
+    let pump_out = out.clone();
+    let pump_stream_id = stream_id.clone();
+    let handle = tokio::spawn(async move {
+        let mut seq: u64 = 0;
+        let mut tick = tokio::time::interval(interval);
+        tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+        tick.tick().await; // the first tick is immediate; the ack already read once
+        loop {
+            tick.tick().await;
+            let next = crate::tools::ops::read_verdict(&api_base).await;
+            if let Some(mut change) = crate::tools::ops::health_transition(&last, &next) {
+                seq += 1;
+                change["stream_id"] = json!(pump_stream_id);
+                change["seq"] = json!(seq);
+                let notif = json!({
+                    "jsonrpc": "2.0",
+                    "method": "notifications/openstory/health",
+                    "params": change,
+                });
+                if pump_out
+                    .send(serde_json::to_string(&notif).unwrap())
+                    .await
+                    .is_err()
+                {
+                    break;
+                }
+            }
+            last = next;
         }
     });
 

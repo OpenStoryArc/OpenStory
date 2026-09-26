@@ -37,7 +37,7 @@ use serde_json::Value;
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
 
-use crate::event_store::{EventStore, SessionRow};
+use crate::event_store::{BootFacts, EventStore, PresenceRow, SessionRow};
 
 // Collection names — kept as const so any rename happens in one place.
 const COLL_EVENTS: &str = "events";
@@ -49,6 +49,8 @@ const COLL_PATTERNS: &str = "patterns";
 const COLL_TURNS: &str = "turns";
 #[allow(dead_code)]
 const COLL_PLANS: &str = "plans";
+/// P-02: one document per node, the latest presence beat.
+const COLL_PRESENCE: &str = "presence";
 #[allow(dead_code)]
 const COLL_FTS: &str = "events_fts";
 
@@ -388,11 +390,11 @@ impl EventStore for MongoStore {
         // Authoritative $set (not $min/$max-merge) so we can lower a polluted
         // bound. Bson::Null when there is no real-activity timestamp.
         let sessions: Collection<Document> = self.db.collection(COLL_SESSIONS);
-        let existing_last: Option<String> = match sessions.find_one(doc! { "_id": session_id }).await
-        {
-            Ok(Some(doc)) => doc.get_str("last_event").ok().map(|s| s.to_string()),
-            _ => None,
-        };
+        let existing_last: Option<String> =
+            match sessions.find_one(doc! { "_id": session_id }).await {
+                Ok(Some(doc)) => doc.get_str("last_event").ok().map(|s| s.to_string()),
+                _ => None,
+            };
 
         // Preserve a strictly-ahead live frontier; otherwise heal. Both operands
         // must be present so the no-events case falls through to the recomputed
@@ -656,6 +658,41 @@ impl EventStore for MongoStore {
         Ok(out)
     }
 
+    /// The window by `timestamp` with a projection down to the two fields'
+    /// paths inside `payload`, so no event body leaves the server; the
+    /// projected sub-document is read with the same functions the
+    /// in-memory path uses.
+    async fn session_boot_facts(&self, session_id: &str) -> Result<BootFacts> {
+        use futures::StreamExt;
+        let coll: Collection<Document> = self.db.collection(COLL_EVENTS);
+        let mut projection = doc! {
+            format!("payload.{}", crate::state::SESSION_ID_FIELD_PATH.join(".")): 1,
+        };
+        for path in crate::analysis::CWD_FIELD_PATHS {
+            projection.insert(format!("payload.{}", path.join(".")), 1);
+        }
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "timestamp": 1 })
+            .limit(BootFacts::WINDOW as i64)
+            .projection(projection)
+            .build();
+        let mut cursor = coll
+            .find(doc! { "session_id": session_id })
+            .with_options(opts)
+            .await
+            .map_err(|e| anyhow!("mongo session_boot_facts find: {e}"))?;
+        let mut projected = Vec::with_capacity(BootFacts::WINDOW);
+        while let Some(next) = cursor.next().await {
+            let doc = next.map_err(|e| anyhow!("mongo session_boot_facts cursor: {e}"))?;
+            if let Some(payload) = doc.get("payload") {
+                let value: Value = bson::from_bson(payload.clone())
+                    .map_err(|e| anyhow!("projected payload bson → value: {e}"))?;
+                projected.push(value);
+            }
+        }
+        Ok(BootFacts::from_events(session_id, &projected))
+    }
+
     /// List all session metadata rows, sorted by `last_event` DESC to match
     /// the SQLite backend contract. `api::list_sessions` relies on this order
     /// (the "latest" sidebar in the UI is the head of this list).
@@ -697,6 +734,58 @@ impl EventStore for MongoStore {
         while let Some(next) = cursor.next().await {
             let doc = next.map_err(|e| anyhow!("mongo session_patterns cursor: {e}"))?;
             out.push(doc_to_pattern_event(&doc)?);
+        }
+        Ok(out)
+    }
+
+    async fn upsert_presence(&self, row: &PresenceRow) -> Result<()> {
+        let coll: Collection<Document> = self.db.collection(COLL_PRESENCE);
+        let id = format!("{}/{}", row.host, row.principal_id);
+        let body: Bson = bson::to_bson(&row.body).map_err(|e| anyhow!("presence → bson: {e}"))?;
+        let doc = doc! {
+            "_id": &id,
+            "host": &row.host,
+            "principal_id": &row.principal_id,
+            "person_id": row.person_id.as_deref().map(Bson::from).unwrap_or(Bson::Null),
+            "time": &row.time,
+            "data": body,
+        };
+        let opts = mongodb::options::ReplaceOptions::builder()
+            .upsert(true)
+            .build();
+        coll.replace_one(doc! { "_id": id }, doc)
+            .with_options(opts)
+            .await
+            .map_err(|e| anyhow!("mongo upsert_presence: {e}"))?;
+        Ok(())
+    }
+
+    async fn latest_presence(&self) -> Result<Vec<PresenceRow>> {
+        use futures::StreamExt;
+        let coll: Collection<Document> = self.db.collection(COLL_PRESENCE);
+        let opts = mongodb::options::FindOptions::builder()
+            .sort(doc! { "host": 1, "principal_id": 1 })
+            .build();
+        let mut cursor = coll
+            .find(doc! {})
+            .with_options(opts)
+            .await
+            .map_err(|e| anyhow!("mongo latest_presence find: {e}"))?;
+        let mut out = Vec::new();
+        while let Some(next) = cursor.next().await {
+            let d = next.map_err(|e| anyhow!("mongo latest_presence cursor: {e}"))?;
+            let body = d
+                .get("data")
+                .cloned()
+                .map(|b| bson::from_bson::<Value>(b).unwrap_or(Value::Null))
+                .unwrap_or(Value::Null);
+            out.push(PresenceRow {
+                host: d.get_str("host").unwrap_or_default().to_string(),
+                principal_id: d.get_str("principal_id").unwrap_or_default().to_string(),
+                person_id: d.get_str("person_id").ok().map(str::to_string),
+                time: d.get_str("time").unwrap_or_default().to_string(),
+                body,
+            });
         }
         Ok(out)
     }
@@ -1789,6 +1878,15 @@ impl EventStore for MongoStore {
     /// the `searchable_text` field where the text index lives. The
     /// `_id` is the event_id so re-indexing the same event overwrites
     /// (matches SQLite's contentless table behavior).
+    async fn fts_count_for_session(&self, session_id: &str) -> Result<Option<u64>> {
+        let coll: Collection<Document> = self.db.collection(COLL_FTS);
+        let n = coll
+            .count_documents(doc! { "session_id": session_id })
+            .await
+            .map_err(|e| anyhow!("mongo fts_count_for_session: {e}"))?;
+        Ok(Some(n))
+    }
+
     async fn index_fts(
         &self,
         event_id: &str,

@@ -58,6 +58,7 @@ COPY mcp/src/ mcp/src/
 COPY mcp/benches/ mcp/benches/
 COPY patterns/src/ patterns/src/
 COPY server/src/ server/src/
+COPY server/build.rs server/build.rs
 COPY store/src/ store/src/
 COPY views/src/ views/src/
 COPY schemas/src/ schemas/src/

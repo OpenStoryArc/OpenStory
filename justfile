@@ -20,6 +20,10 @@ dev:
 # Run all tests (Rust + UI + Clippy — mirrors CI)
 test:
     cargo test --manifest-path rs/Cargo.toml --workspace --exclude open-story-cli -- --skip compose --skip container
+    python3 scripts/swallowed_errors.py
+    python3 scripts/subject_publishers.py
+    python3 scripts/k8s_manifest_check.py
+    python3 scripts/check_docs.py
     cargo clippy --manifest-path rs/Cargo.toml --workspace --exclude open-story-cli -- -D warnings
     cd ui && npm test -- --run
 
@@ -324,6 +328,10 @@ download-model:
 token-usage *ARGS:
     PYTHONIOENCODING=utf-8 uv run python scripts/token_usage.py {{ARGS}}
 
+# Boot-memory harness (B-00): synthetic store, two boots, peak RSS per phase; --test for specs
+boot-memory *ARGS:
+    python3 scripts/boot_memory.py {{ARGS}}
+
 # Backfill semantic embeddings for all existing events
 backfill:
     ORT_DYLIB_PATH=data/models/{{ort_lib}} cargo run --manifest-path rs/cli/Cargo.toml -- backfill --data-dir ./data
@@ -340,9 +348,11 @@ compose:
 docker-build:
     cd rs && docker build -t open-story:test .
 
-# Run container tests (local mode, no NATS)
+# Run container tests (local mode, no NATS), the boot-memory gate (B-10: the
+# production image under a 512 MiB cgroup with a NATS sidecar), and the
+# consumer-drain gate (B-11: the same box with a stream backlog to drain)
 test-container: docker-build
-    cargo test --manifest-path rs/Cargo.toml -p open-story --test test_container
+    cargo test --manifest-path rs/Cargo.toml -p open-story --test test_container --test test_boot_memory_gate --test test_consumer_drain_gate
 
 # Run compose tests (full NATS bus path)
 test-compose: docker-build

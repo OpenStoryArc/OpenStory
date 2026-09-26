@@ -14,6 +14,7 @@ Usage:
 from __future__ import annotations
 
 import argparse
+import json
 import re
 import sys
 from collections.abc import Callable
@@ -469,6 +470,118 @@ def check_no_retired_hooks_endpoint(repo: Path) -> CheckResult:
     )
 
 
+
+# -- Dashboards (O-04) ------------------------------------------------
+
+# Metric namespaces this codebase owns. A dashboard token with one of these
+# prefixes must name a metric the server actually emits; exporter metrics
+# (nats_*, gnatsd_*, process_*) are somebody else's and are not checked.
+OUR_METRIC_PREFIXES = ("openstory_", "events_", "watcher_", "sessions_", "ws_", "patterns_", "hooks_")
+
+# The O-01 node gauges the "Node" dashboard must carry.
+NODE_GAUGES = (
+    "openstory_events_ingested_total",
+    "openstory_consumer_lag",
+    "openstory_consumer_restarts_total",
+    "openstory_stream_bytes",
+    "openstory_publish_failures_total",
+)
+
+
+def list_code_metric_names(repo: Path) -> set[str]:
+    """Every metric name rs/server/src/metrics.rs emits: the `names::`
+    constants plus any `openstory_*` literal in a rendered block."""
+    src_path = repo / "rs" / "server" / "src" / "metrics.rs"
+    if not src_path.exists():
+        return set()
+    src = src_path.read_text(encoding="utf-8")
+    names = set(re.findall(r'pub const [A-Z_]+: &str = "([a-z][a-z0-9_]*)"', src))
+    names |= set(re.findall(r"\b(openstory_[a-z0-9_]+)\b", src))
+    return names
+
+
+def _panel_exprs(panels: list) -> list[tuple[str, str]]:
+    """(panel title, expr) for every target, rows included."""
+    out: list[tuple[str, str]] = []
+    for panel in panels or []:
+        title = str(panel.get("title", "?"))
+        for target in panel.get("targets", []) or []:
+            expr = target.get("expr")
+            if isinstance(expr, str):
+                out.append((title, expr))
+        out.extend(_panel_exprs(panel.get("panels", []) or []))
+    return out
+
+
+def list_dashboards(repo: Path) -> list[tuple[str, str, list[tuple[str, str]]]]:
+    """(file name, dashboard title, [(panel, expr)]) per dashboard JSON."""
+    folder = repo / "observe" / "grafana" / "dashboards"
+    if not folder.is_dir():
+        return []
+    out = []
+    for path in sorted(folder.glob("*.json")):
+        try:
+            data = json.loads(path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as e:
+            out.append((path.name, f"<invalid json: {e}>", []))
+            continue
+        out.append((path.name, str(data.get("title", "")), _panel_exprs(data.get("panels", []))))
+    return out
+
+
+def metric_tokens(expr: str) -> set[str]:
+    """Our metric names referenced by a PromQL expression."""
+    return {
+        tok
+        for tok in re.findall(r"\b([a-z][a-z0-9_]*)\b", expr)
+        if tok.startswith(OUR_METRIC_PREFIXES)
+    }
+
+
+def check_dashboard_metric_names(repo: Path) -> CheckResult:
+    """O-04 — every metric a dashboard queries in our namespace must exist
+    in rs/server/src/metrics.rs. A stale panel is a lie on a screen."""
+    dashboards = list_dashboards(repo)
+    if not dashboards:
+        return CheckResult("dashboard_metric_names", ok=True, detail="no dashboards to check")
+    known = list_code_metric_names(repo)
+    fails: list[str] = []
+    seen = 0
+    for file, title, exprs in dashboards:
+        if title.startswith("<invalid json"):
+            fails.append(f"{file}: {title}")
+            continue
+        for panel, expr in exprs:
+            for tok in sorted(metric_tokens(expr)):
+                seen += 1
+                if tok not in known:
+                    fails.append(f"{file} › {panel}: `{tok}` is not a metric the server emits")
+    return CheckResult(
+        "dashboard_metric_names",
+        ok=not fails,
+        detail="; ".join(fails) if fails else f"{seen} metric references across {len(dashboards)} dashboards all exist",
+    )
+
+
+def check_node_dashboard_covers_gauges(repo: Path) -> CheckResult:
+    """O-04 — a dashboard titled "Node" exists and queries the O-01 gauges."""
+    dashboards = list_dashboards(repo)
+    if not dashboards:
+        return CheckResult("node_dashboard_covers_gauges", ok=True, detail="no dashboards to check")
+    node = [(f, exprs) for f, title, exprs in dashboards if title == "Node"]
+    if not node:
+        return CheckResult("node_dashboard_covers_gauges", ok=False, detail='no dashboard titled "Node" in observe/grafana/dashboards')
+    file, exprs = node[0]
+    referenced: set[str] = set()
+    for _, expr in exprs:
+        referenced |= metric_tokens(expr)
+    missing = [g for g in NODE_GAUGES if g not in referenced]
+    return CheckResult(
+        "node_dashboard_covers_gauges",
+        ok=not missing,
+        detail=f"{file} lacks {missing}" if missing else f"{file} queries all {len(NODE_GAUGES)} node gauges",
+    )
+
 CHECKS: list[Callable[[Path], CheckResult]] = [
     check_no_merge_markers,
     check_pattern_detector_count,
@@ -485,6 +598,8 @@ CHECKS: list[Callable[[Path], CheckResult]] = [
     check_consumer_count,
     check_config_table_fields,
     check_no_retired_hooks_endpoint,
+    check_dashboard_metric_names,
+    check_node_dashboard_covers_gauges,
 ]
 
 
@@ -600,9 +715,18 @@ def selftest() -> int:
             "| `ghost_field` | `x` | not in struct |\n"
         )
         (fake / "README.md").write_text("nothing about story")
+        (fake / "observe" / "grafana" / "dashboards").mkdir(parents=True)
+        (fake / "rs" / "server" / "src" / "metrics.rs").write_text(
+            'pub const EVENTS_INGESTED: &str = "events_ingested_total";\n'
+        )
+        (fake / "observe" / "grafana" / "dashboards" / "old.json").write_text(json.dumps({
+            "title": "Old", "panels": [{"title": "Hooks", "targets": [{"expr": "rate(hooks_received_total[5m])"}]}],
+        }))
 
         results = [c(fake) for c in CHECKS]
         names_failing = {r.name for r in results if not r.ok}
+        expect("dashboard metric names check fails", "dashboard_metric_names" in names_failing)
+        expect("node dashboard check fails", "node_dashboard_covers_gauges" in names_failing)
         expect("merge marker check fails", "no_merge_markers" in names_failing)
         expect("detector count check fails", "pattern_detector_count" in names_failing)
         expect("crate count check fails", "crate_count" in names_failing)
@@ -661,6 +785,25 @@ def selftest() -> int:
         (fake / "README.md").write_text("Run sessionstory.py for the story")
         # Need a sessionstory.py reference to satisfy script existence check
         (fake / "scripts" / "sessionstory.py").write_text("")
+        (fake / "observe" / "grafana" / "dashboards").mkdir(parents=True)
+        (fake / "rs" / "server" / "src" / "metrics.rs").write_text(
+            'pub const EVENTS_DEDUPED: &str = "events_deduped_total";\n'
+            'let s = "openstory_events_ingested_total openstory_consumer_lag '
+            'openstory_consumer_restarts_total openstory_stream_bytes openstory_publish_failures_total";\n'
+        )
+        (fake / "observe" / "grafana" / "dashboards" / "node.json").write_text(json.dumps({
+            "title": "Node",
+            "panels": [
+                {"title": "Ingest", "targets": [{"expr": "sum by (agent) (rate(openstory_events_ingested_total[5m]))"}]},
+                {"title": "Row", "type": "row", "panels": [
+                    {"title": "Lag", "targets": [{"expr": "openstory_consumer_lag"}]},
+                    {"title": "Restarts", "targets": [{"expr": "increase(openstory_consumer_restarts_total[1h])"}]},
+                ]},
+                {"title": "Streams", "targets": [{"expr": "openstory_stream_bytes"}]},
+                {"title": "Failures", "targets": [{"expr": "openstory_publish_failures_total"}, {"expr": "rate(events_deduped_total[5m])"}]},
+                {"title": "NATS", "targets": [{"expr": "rate(gnatsd_varz_in_msgs[5m])"}]},
+            ],
+        }))
 
         results = [c(fake) for c in CHECKS]
         names_failing = {r.name for r in results if not r.ok}

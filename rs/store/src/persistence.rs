@@ -66,6 +66,11 @@ impl SessionStore {
     }
 
     /// Return all session IDs (from JSONL filenames).
+    /// The directory this store appends into.
+    pub fn data_dir(&self) -> &Path {
+        &self.data_dir
+    }
+
     pub fn list_sessions(&self) -> Vec<String> {
         let mut sessions = Vec::new();
         if let Ok(entries) = fs::read_dir(&self.data_dir) {
@@ -135,6 +140,35 @@ impl SessionStore {
             }
         }
         events
+    }
+}
+
+/// Presence history (D-02): one compact line per beat, in the data
+/// directory, so the four DORA keys can be read from the node's own
+/// record with grep. The presence table keeps only the latest beat.
+pub struct PresenceLog {
+    path: PathBuf,
+}
+
+impl PresenceLog {
+    pub fn new(data_dir: &Path) -> Result<Self> {
+        fs::create_dir_all(data_dir)?;
+        Ok(Self {
+            path: data_dir.join("presence.jsonl"),
+        })
+    }
+
+    pub fn append(&self, line: &Value) -> Result<()> {
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)?;
+        writeln!(file, "{}", serde_json::to_string(line)?)?;
+        Ok(())
+    }
+
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 }
 

@@ -10,9 +10,10 @@ use serde_json::Value;
 
 use chrono::{DateTime, Utc};
 use open_story_core::cloud_event::CloudEvent;
+use open_story_core::subtype::Subtype;
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::tool_input::ToolInput;
-use open_story_views::unified::{MessageContent, RecordBody};
+use open_story_views::unified::{ContentBlock, MessageContent, RecordBody};
 use open_story_views::view_record::ViewRecord;
 use open_story_views::wire_record::TRUNCATION_THRESHOLD;
 
@@ -147,49 +148,135 @@ fn is_test_failure(record: &ViewRecord) -> bool {
     }
 }
 
-/// Byte length of the string content a `ViewRecord` carries, for heap-size
-/// budgeting. `ViewRecord` is defined in `open_story_views`, so this is a
-/// local trait (not an inherent impl) to stay within this crate — orphan
-/// rules allow `impl LocalTrait for ForeignType`.
-trait ApproxContentLen {
-    fn approx_content_len(&self) -> usize;
+/// Bytes a `Vec` of `cap` elements of `elem` bytes holds on the heap.
+fn vec_alloc(cap: usize, elem: usize) -> u64 {
+    (cap * elem) as u64
 }
 
-fn content_block_len(block: &open_story_views::unified::ContentBlock) -> usize {
-    use open_story_views::unified::ContentBlock;
-    match block {
-        ContentBlock::Text { text } => text.len(),
-        ContentBlock::CodeBlock { text, .. } => text.len(),
-        ContentBlock::Image { .. } => 0,
+/// Bytes a hashbrown table with usable `capacity` holds: buckets are the
+/// smallest power of two whose 7/8 covers the capacity (4 or 8 for tiny
+/// tables), each bucket one entry plus one control byte, plus one group
+/// width of trailing control bytes.
+fn table_alloc(capacity: usize, entry: usize) -> u64 {
+    if capacity == 0 {
+        return 0;
     }
+    let buckets = if capacity < 4 {
+        4
+    } else if capacity < 8 {
+        8
+    } else {
+        capacity.div_ceil(7).saturating_mul(8).next_power_of_two()
+    };
+    (buckets * entry + buckets + 16) as u64
 }
 
-impl ApproxContentLen for ViewRecord {
-    fn approx_content_len(&self) -> usize {
-        match &self.body {
-            RecordBody::UserMessage(um) => match &um.content {
-                MessageContent::Text(t) => t.len(),
-                MessageContent::Blocks(blocks) => blocks.iter().map(content_block_len).sum(),
-            },
-            RecordBody::AssistantMessage(am) => am.content.iter().map(content_block_len).sum(),
-            RecordBody::Reasoning(r) => {
-                r.content.as_deref().map(str::len).unwrap_or(0)
-                    + r.summary.iter().map(String::len).sum::<usize>()
-            }
-            RecordBody::ToolResult(tr) => tr.output.as_deref().map(str::len).unwrap_or(0),
-            RecordBody::Error(e) => {
-                e.message.len() + e.details.as_deref().map(str::len).unwrap_or(0)
-            }
-            RecordBody::ContextCompaction(cc) => cc.message.as_deref().map(str::len).unwrap_or(0),
-            RecordBody::SystemEvent(se) => se.message.as_deref().map(str::len).unwrap_or(0),
-            RecordBody::FileSnapshot(fs) => fs.git_message.as_deref().map(str::len).unwrap_or(0),
-            RecordBody::SessionMeta(_)
-            | RecordBody::TurnStart(_)
-            | RecordBody::TurnEnd(_)
-            | RecordBody::ToolCall(_)
-            | RecordBody::TokenUsage(_) => 0,
+/// Heap a `serde_json::Value` owns, walked. Objects are `BTreeMap`s: each
+/// entry carries its key, a `Value`, and a share of a node.
+fn value_heap_bytes(v: &Value) -> u64 {
+    match v {
+        Value::String(s) => s.capacity() as u64,
+        Value::Array(a) => {
+            vec_alloc(a.capacity(), std::mem::size_of::<Value>())
+                + a.iter().map(value_heap_bytes).sum::<u64>()
         }
+        Value::Object(o) => o
+            .iter()
+            .map(|(k, v)| k.capacity() as u64 + 88 + value_heap_bytes(v))
+            .sum(),
+        _ => 0,
     }
+}
+
+fn opt_str_bytes(o: &Option<String>) -> u64 {
+    o.as_ref().map_or(0, |s| s.capacity() as u64)
+}
+
+fn content_blocks_bytes(blocks: &[ContentBlock]) -> u64 {
+    vec_alloc(blocks.len(), std::mem::size_of::<ContentBlock>())
+        + blocks
+            .iter()
+            .map(|b| match b {
+                ContentBlock::Text { text } => text.capacity() as u64,
+                ContentBlock::CodeBlock { text, language } => {
+                    text.capacity() as u64 + opt_str_bytes(language)
+                }
+                ContentBlock::Image { source } => value_heap_bytes(source),
+            })
+            .sum::<u64>()
+}
+
+/// Heap one `ViewRecord` owns beyond its own inline size: every string and
+/// value in the envelope and the body. Nested typed views (`typed_input`,
+/// `tool_outcome`) are counted by their JSON length, which tracks their
+/// string content closely enough for a byte budget.
+fn record_heap_bytes(r: &ViewRecord) -> u64 {
+    use std::mem::size_of;
+    let envelope = r.id.capacity()
+        + r.session_id.capacity()
+        + r.timestamp.capacity()
+        + r.origin_agent.as_ref().map_or(0, String::capacity)
+        + r.agent_id.as_ref().map_or(0, String::capacity);
+    let body = match &r.body {
+        RecordBody::SessionMeta(m) => {
+            (m.cwd.capacity() + m.model.capacity() + m.version.capacity()) as u64
+                + m.git
+                    .as_ref()
+                    .map_or(0, |g| opt_str_bytes(&g.branch) + opt_str_bytes(&g.commit))
+        }
+        RecordBody::TurnStart(t) => opt_str_bytes(&t.turn_id),
+        RecordBody::TurnEnd(t) => opt_str_bytes(&t.turn_id) + opt_str_bytes(&t.reason),
+        RecordBody::UserMessage(um) => {
+            let content = match &um.content {
+                MessageContent::Text(t) => t.capacity() as u64,
+                MessageContent::Blocks(blocks) => content_blocks_bytes(blocks),
+            };
+            content
+                + vec_alloc(um.images.capacity(), size_of::<Value>())
+                + um.images.iter().map(value_heap_bytes).sum::<u64>()
+        }
+        RecordBody::AssistantMessage(am) => {
+            size_of::<open_story_views::unified::AssistantMessage>() as u64
+                + am.model.capacity() as u64
+                + content_blocks_bytes(&am.content)
+                + opt_str_bytes(&am.stop_reason)
+                + opt_str_bytes(&am.phase)
+        }
+        RecordBody::Reasoning(rs) => {
+            vec_alloc(rs.summary.capacity(), size_of::<String>())
+                + rs.summary.iter().map(|s| s.capacity() as u64).sum::<u64>()
+                + opt_str_bytes(&rs.content)
+        }
+        RecordBody::ToolCall(tc) => {
+            size_of::<open_story_views::unified::ToolCall>() as u64
+                + (tc.call_id.capacity() + tc.name.capacity()) as u64
+                + value_heap_bytes(&tc.input)
+                + value_heap_bytes(&tc.raw_input)
+                + tc.typed_input
+                    .as_ref()
+                    .map_or(0, |t| serde_json::to_vec(t).map_or(0, |v| v.len() as u64))
+                + opt_str_bytes(&tc.status)
+        }
+        RecordBody::ToolResult(tr) => {
+            tr.call_id.capacity() as u64
+                + opt_str_bytes(&tr.output)
+                + tr.tool_outcome
+                    .as_ref()
+                    .map_or(0, |o| serde_json::to_vec(o).map_or(0, |v| v.len() as u64))
+        }
+        RecordBody::TokenUsage(_) => 0,
+        RecordBody::ContextCompaction(cc) => opt_str_bytes(&cc.reason) + opt_str_bytes(&cc.message),
+        RecordBody::FileSnapshot(fs) => {
+            opt_str_bytes(&fs.git_commit)
+                + opt_str_bytes(&fs.git_message)
+                + fs.tracked_files.as_ref().map_or(0, value_heap_bytes)
+        }
+        RecordBody::SystemEvent(se) => se.subtype.capacity() as u64 + opt_str_bytes(&se.message),
+        RecordBody::Error(e) => {
+            (e.code.capacity() + e.message.capacity()) as u64 + opt_str_bytes(&e.details)
+        }
+    };
+    envelope as u64 + body
 }
 
 // ── SessionProjection ───────────────────────────────────────────────
@@ -230,6 +317,14 @@ pub struct SessionProjection {
     summary_acc: SummaryAccumulator,
     /// Event id of the earliest failure (error record or errored tool result).
     first_error_event_id: Option<String>,
+    /// The latest event `time` seen, excluding subtypes whose time is
+    /// synthesized at translation (`file.snapshot`). The session's own
+    /// recency — what the projection cache's working-set window reads
+    /// (B-09 b), never when a replay touched it.
+    last_event_at: Option<DateTime<Utc>>,
+    /// Append-only heap the projection owns (record strings, payloads, map
+    /// keys), kept as a running sum so `heap_bytes` is O(1) (B-09 a).
+    owned_bytes: u64,
 }
 
 /// Result of appending a CloudEvent to the projection.
@@ -284,7 +379,14 @@ impl SessionProjection {
             file_touches: HashMap::new(),
             summary_acc: SummaryAccumulator::new(),
             first_error_event_id: None,
+            last_event_at: None,
+            owned_bytes: 0,
         }
+    }
+
+    /// The session's own recency: the latest non-synthesized event time.
+    pub fn last_event_at(&self) -> Option<DateTime<Utc>> {
+        self.last_event_at
     }
 
     /// Append a raw CloudEvent (as Value). Returns the new records and filter deltas.
@@ -296,8 +398,34 @@ impl SessionProjection {
             .and_then(|v| v.as_str())
             .unwrap_or("")
             .to_string();
-        if !event_id.is_empty() && !self.seen_ids.insert(event_id.clone()) {
-            return AppendResult::empty();
+        if !event_id.is_empty() {
+            let key = event_id.clone();
+            let key_bytes = key.capacity() as u64;
+            if !self.seen_ids.insert(key) {
+                return AppendResult::empty();
+            }
+            self.owned_bytes += key_bytes;
+        }
+
+        // The session's own recency (B-09 b): the event's `time`, unless the
+        // subtype's time is synthesized at translation and says nothing
+        // about when the session was active.
+        let synthesized = event
+            .get("subtype")
+            .and_then(|v| v.as_str())
+            .and_then(|s| s.parse::<Subtype>().ok())
+            .is_some_and(|st| st.time_is_synthesized());
+        if !synthesized {
+            if let Some(t) = event
+                .get("time")
+                .and_then(|v| v.as_str())
+                .and_then(|s| DateTime::parse_from_rfc3339(s).ok())
+            {
+                let t = t.with_timezone(&Utc);
+                if self.last_event_at.is_none_or(|prev| t > prev) {
+                    self.last_event_at = Some(t);
+                }
+            }
         }
 
         // Feed the incremental summary fold — every deduped event, including
@@ -316,6 +444,8 @@ impl SessionProjection {
             None => 0,
         };
         if !event_id.is_empty() {
+            self.owned_bytes += 2 * event_id.capacity() as u64
+                + parent_uuid.as_ref().map_or(0, |p| p.capacity() as u64);
             self.depths.insert(event_id.clone(), depth);
             self.parents.insert(event_id.clone(), parent_uuid.clone());
         }
@@ -334,7 +464,10 @@ impl SessionProjection {
         for vr in &view_records {
             if let RecordBody::ToolResult(tr) = &vr.body {
                 if let Some(output) = &tr.output {
-                    if output.len() > TRUNCATION_THRESHOLD {
+                    if output.len() > TRUNCATION_THRESHOLD
+                        && !self.full_payloads.contains_key(&vr.id)
+                    {
+                        self.owned_bytes += (vr.id.len() + output.len()) as u64;
                         self.full_payloads.insert(vr.id.clone(), output.clone());
                     }
                 }
@@ -347,8 +480,7 @@ impl SessionProjection {
                 RecordBody::TokenUsage(tu) => {
                     self.total_input_tokens += tu.input_tokens.unwrap_or(0);
                     self.total_output_tokens += tu.output_tokens.unwrap_or(0);
-                    self.total_cache_creation_tokens +=
-                        tu.cache_creation_input_tokens.unwrap_or(0);
+                    self.total_cache_creation_tokens += tu.cache_creation_input_tokens.unwrap_or(0);
                     self.total_cache_read_tokens += tu.cache_read_input_tokens.unwrap_or(0);
                 }
                 RecordBody::TurnEnd(_) => {
@@ -357,7 +489,9 @@ impl SessionProjection {
                 RecordBody::Error(_) if self.first_error_event_id.is_none() => {
                     self.first_error_event_id = Some(vr.id.clone());
                 }
-                RecordBody::ToolResult(tr) if tr.is_error && self.first_error_event_id.is_none() => {
+                RecordBody::ToolResult(tr)
+                    if tr.is_error && self.first_error_event_id.is_none() =>
+                {
                     self.first_error_event_id = Some(vr.id.clone());
                 }
                 RecordBody::ToolCall(tc) => {
@@ -369,6 +503,9 @@ impl SessionProjection {
                         _ => None,
                     };
                     if let Some(p) = path {
+                        if !self.file_touches.contains_key(p) {
+                            self.owned_bytes += p.len() as u64;
+                        }
                         *self.file_touches.entry(p.to_string()).or_insert(0) += 1;
                     }
                 }
@@ -426,12 +563,16 @@ impl SessionProjection {
                 .filter(|r| filter_matches(name, r))
                 .count() as i32;
             if delta > 0 {
+                if !self.filter_counts.contains_key(*name) {
+                    self.owned_bytes += name.len() as u64;
+                }
                 *self.filter_counts.entry(name.to_string()).or_insert(0) += delta as usize;
                 filter_deltas.insert(name.to_string(), delta);
             }
         }
 
         // 7. Store records
+        self.owned_bytes += view_records.iter().map(record_heap_bytes).sum::<u64>();
         self.records.extend(view_records.clone());
 
         AppendResult {
@@ -526,8 +667,11 @@ impl SessionProjection {
     /// The `n` most-touched files: (path, touch count), most-touched first,
     /// path as the tiebreak so the answer is deterministic.
     pub fn top_files(&self, n: usize) -> Vec<(String, usize)> {
-        let mut files: Vec<(String, usize)> =
-            self.file_touches.iter().map(|(p, c)| (p.clone(), *c)).collect();
+        let mut files: Vec<(String, usize)> = self
+            .file_touches
+            .iter()
+            .map(|(p, c)| (p.clone(), *c))
+            .collect();
         files.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
         files.truncate(n);
         files
@@ -540,19 +684,32 @@ impl SessionProjection {
         self.summary_acc.finish(session_id_hint, now)
     }
 
-    /// Approximate resident heap footprint of this projection. Not exact —
-    /// sums the string content we hold (record bodies + overflow payloads)
-    /// plus a fixed per-record overhead. Good enough for byte budgeting.
+    /// Resident heap footprint of this projection (B-09 a): the running sum
+    /// of what it owns (record strings and values, full payloads, map keys)
+    /// plus the containers' allocations at their current capacity. O(1):
+    /// the sum is kept on append; only capacities are read here. The cache
+    /// budgets by this number, so it must be what the allocator sees, not a
+    /// fraction of it — `tests/test_projection_heap.rs` checks it against a
+    /// counting allocator.
     pub fn heap_bytes(&self) -> u64 {
-        const PER_RECORD_OVERHEAD: u64 = 256;
-        let mut n = 0u64;
-        for r in &self.records {
-            n += PER_RECORD_OVERHEAD + r.approx_content_len() as u64;
-        }
-        for v in self.full_payloads.values() {
-            n += v.len() as u64;
-        }
-        n
+        use std::mem::size_of;
+        let opt = |o: &Option<String>| o.as_ref().map_or(0, |s| s.capacity() as u64);
+        self.owned_bytes
+            + vec_alloc(self.records.capacity(), size_of::<ViewRecord>())
+            + table_alloc(self.seen_ids.capacity(), size_of::<String>())
+            + table_alloc(self.depths.capacity(), size_of::<(String, u16)>())
+            + table_alloc(
+                self.parents.capacity(),
+                size_of::<(String, Option<String>)>(),
+            )
+            + table_alloc(self.filter_counts.capacity(), size_of::<(String, usize)>())
+            + table_alloc(self.full_payloads.capacity(), size_of::<(String, String)>())
+            + table_alloc(self.file_touches.capacity(), size_of::<(String, usize)>())
+            + self.session_id.capacity() as u64
+            + opt(&self.label)
+            + opt(&self.branch)
+            + opt(&self.first_error_event_id)
+            + self.summary_acc.heap_bytes()
     }
 }
 
@@ -967,14 +1124,16 @@ mod tests {
         ));
         // Failures arrive as errored tool_results (claude-code shape) — the
         // views layer never mints RecordBody::Error for this agent.
-        let errored = |id: &str, seq: u64| raw_event(
-            id,
-            seq,
-            "message.user.tool_result",
-            json!({"raw": {"type": "user", "message": {"role": "user", "content": [
-                {"type": "tool_result", "tool_use_id": "c1", "content": "boom", "is_error": true}
-            ]}}}),
-        );
+        let errored = |id: &str, seq: u64| {
+            raw_event(
+                id,
+                seq,
+                "message.user.tool_result",
+                json!({"raw": {"type": "user", "message": {"role": "user", "content": [
+                    {"type": "tool_result", "tool_use_id": "c1", "content": "boom", "is_error": true}
+                ]}}}),
+            )
+        };
         proj.append(&errored("err-1", 2));
         proj.append(&errored("err-2", 3));
 
@@ -996,7 +1155,10 @@ mod tests {
             json!({"raw": {"type": "assistant", "message": {"model": "claude-fable-5",
                    "content": [{"type": "text", "text": big}]}}}),
         ));
-        assert!(p.heap_bytes() > base + 8_000, "expected content to add ~10KB");
+        assert!(
+            p.heap_bytes() > base + 8_000,
+            "expected content to add ~10KB"
+        );
     }
 
     #[test]

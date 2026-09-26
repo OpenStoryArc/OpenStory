@@ -15,7 +15,7 @@
  * plays one back.
  */
 
-import { useCallback, useEffect, useReducer, useState } from "react";
+import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import type { HashRoute } from "@/lib/hash-route";
 import { fetchReel, fetchReels, type Reel, type ReelMeta } from "@/lib/reels-api";
 import {
@@ -28,6 +28,7 @@ import {
 import { EventSpotlight } from "@/components/control/EventSpotlight";
 import { TitleSpotlight } from "@/components/control/TitleSpotlight";
 import { ReelBeatStage } from "@/components/reels/ReelBeatStage";
+import { pickNarrationVoice } from "@/lib/narration-voice";
 import { BeatInkLayer } from "@/components/reels/BeatInkLayer";
 import { ExportReelDialog } from "@/components/reels/ExportReelDialog";
 import { normalizeStopKind } from "@/lib/reel-visual";
@@ -179,6 +180,25 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
   const [reel, setReel] = useState<Reel | null | undefined>(undefined);
   const [annotating, setAnnotating] = useState(false);
   const [exportingReelId, setExportingReelId] = useState<string | null>(null);
+  // The caption bar is a fixed band over the bottom of every stage. Measure
+  // it so non-spotlight beats can keep their content above it (see
+  // ReelBeatStage `reservedBottom`). A callback ref because the bar mounts
+  // only while a slide is showing; the observer follows caption reflow.
+  const [captionHeight, setCaptionHeight] = useState(0);
+  const captionObserver = useRef<ResizeObserver | null>(null);
+  const captionRef = useCallback((el: HTMLDivElement | null) => {
+    captionObserver.current?.disconnect();
+    captionObserver.current = null;
+    if (!el) {
+      setCaptionHeight(0);
+      return;
+    }
+    setCaptionHeight(el.offsetHeight);
+    if (typeof ResizeObserver !== "undefined") {
+      captionObserver.current = new ResizeObserver(() => setCaptionHeight(el.offsetHeight));
+      captionObserver.current.observe(el);
+    }
+  }, []);
 
   useEffect(() => {
     const sub = drawInteractive$().subscribe(setAnnotating);
@@ -245,6 +265,12 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
     if ("speechSynthesis" in window) {
       const u = new SpeechSynthesisUtterance(line);
       u.rate = 1.0;
+      // Prefer an installed premium voice over the browser default (which
+      // on a Mac is whatever System Settings picked, often a basic voice).
+      // `getVoices()` can be empty before Chrome has loaded its list; then
+      // the utterance keeps the default rather than waiting.
+      const voice = pickNarrationVoice(window.speechSynthesis.getVoices?.() ?? []);
+      if (voice) u.voice = voice;
       u.onend = () => {
         if (disposed) return;
         fallback = setTimeout(() => dispatch({ type: "ADVANCE" }), 2000);
@@ -371,6 +397,7 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
           <PlaybackClickSurface onAdvance={() => dispatch({ type: "ADVANCE" })} />
         )}
         <div
+          ref={captionRef}
           className="fixed inset-x-0 bottom-0 z-[110] border-t border-[color:var(--divider)] bg-[color:var(--bg-surface)]/95 px-6 pb-4 pt-3 backdrop-blur-sm"
           data-testid="reels-caption-bar"
         >
@@ -504,7 +531,7 @@ function ReelPlayer({ route, onNavigate }: { route: HashRoute; onNavigate: (rout
           onClose={exit}
         />
       ) : (
-        <ReelBeatStage stop={stop} onClose={exit} />
+        <ReelBeatStage stop={stop} onClose={exit} reservedBottom={captionHeight} />
       );
     return (
       <>

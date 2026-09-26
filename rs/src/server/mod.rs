@@ -30,18 +30,23 @@ use open_story_server::watcher_diagnostics::{
 
 pub use broadcast::BroadcastMessage;
 pub use ingest::{
-    IngestResult, ReplayContext, ingest_events, is_plan_event, replay_boot_sessions, to_wire_record,
+    ingest_events, is_plan_event, replay_boot_sessions, to_wire_record, IngestResult, ReplayContext,
 };
 pub use open_story_server::account_config;
 pub use open_story_server::admin;
 pub use open_story_server::config;
-pub use open_story_server::directory;
 pub use open_story_server::config::{Config, Role};
 pub use open_story_server::consumers;
+pub use open_story_server::directory;
+pub use open_story_server::presence;
 pub use open_story_server::reconcile;
 pub use open_story_server::router::{build_publisher_router, build_router};
 pub use open_story_server::watcher_diagnostics;
-pub use state::{AppState, SharedState, create_state, create_state_with_watch_dirs};
+pub use state::{
+    create_state, create_state_with_store, create_state_with_watch_dirs, effective_payload_budget,
+    effective_projection_budget, AppState, SharedState, PAYLOAD_BUDGET_SHARE_PCT,
+    PROJECTION_BUDGET_SHARE_PCT,
+};
 
 fn agent_for_watch_dir(
     path: &Path,
@@ -104,6 +109,7 @@ pub async fn run_server(
     let claude_watch_dir = config.claude_watch_dir.clone();
     let codex_watch_dir = config.codex_watch_dir.clone();
     let grok_watch_dir = config.grok_watch_dir.clone();
+    let consumers_start_raw = config.consumers_start.clone();
 
     let primary_watch_dir = watch_dirs
         .first()
@@ -146,6 +152,8 @@ pub async fn run_server(
     // O(lifetime_events) — visibly minutes-long with large data dirs.
     // Now startup is O(1); full projection rebuild happens concurrently.
     if is_consumer {
+        // H-02: not ready until replay has run.
+        open_story_server::boot::set_starting();
         // Snapshot everything replay needs and drop the read guard
         // before spawning. The spawned future owns only `Arc`s and
         // small owned HashMaps, so it never contends with the outer
@@ -163,13 +171,9 @@ pub async fn run_server(
             }
         };
         tokio::spawn(async move {
-            let start = std::time::Instant::now();
+            // replay_boot_sessions logs replay_progress and replay_done
+            // itself (L-07), with elapsed time on the done line.
             replay_boot_sessions(&ctx).await;
-            let elapsed = start.elapsed();
-            log_event(
-                "boot",
-                &format!("async replay complete in {}s", elapsed.as_secs()),
-            );
         });
     }
 
@@ -187,13 +191,26 @@ pub async fn run_server(
     // NATS JetStream is a hard requirement (commit 1.1). The four actors
     // unconditionally spawn; `bus.is_active()` gating is gone.
     //
-    // Historical events from JetStream reach the actors via their own
-    // `bus.subscribe("events.>")` calls — the durable-consumer semantics
-    // deliver the replay stream to each subscriber independently. The
-    // previous inline `bus.replay(...)` + `ingest_events` path was
-    // redundant (it processed the same events the actors would have
-    // received) and has been deleted. The Actor 1/2/3/4 subscriptions
+    // Events from JetStream reach the actors through their own durable
+    // consumers (B-11: `bus.subscribe_durable`, named per host and actor,
+    // acked after each batch is handled), so a restart re-reads only what an
+    // actor had not acknowledged; where a consumer that does not exist yet
+    // starts is `consumers::durable_spec`. The Actor 1/2/3/4 subscriptions
     // below are the sole ingestion route.
+    // B-05: when the actors may subscribe. Parsed once; an unknown value
+    // stops the boot with the two accepted words rather than picking one.
+    let consumers_start: open_story_server::boot::ConsumersStart = consumers_start_raw
+        .parse()
+        .map_err(|e: String| anyhow::anyhow!(e))?;
+    if is_consumer && consumers_start == open_story_server::boot::ConsumersStart::Serving {
+        tracing::info!(
+            event = "consumers_held",
+            mode = "serving",
+            "consumers subscribe once the boot replay finishes (consumers_start = \"serving\")"
+        );
+    }
+    let gate = || open_story_server::boot::consumer_gate(consumers_start);
+
     if is_consumer {
         // ── Actor 1: persist consumer (owns dedup + storage + session row) ──
         //
@@ -201,7 +218,14 @@ pub async fn run_server(
         // SessionRow. It upserts after the batch's events are durable;
         // ingest_events no longer touches the `sessions` table.
         {
-            let (event_store, data_dir, shared_projections, shared_projects, shared_names, plan_store) = {
+            let (
+                event_store,
+                data_dir,
+                shared_projections,
+                shared_projects,
+                shared_names,
+                plan_store,
+            ) = {
                 let s = state.read().await;
                 (
                     s.store.event_store.clone(),
@@ -212,45 +236,143 @@ pub async fn run_server(
                     s.store.plan_store.clone(),
                 )
             };
-            let session_store = open_story_store::persistence::SessionStore::new(&data_dir)
-                .expect("create session store for persist consumer");
             let persist_bus = bus.clone();
-            tokio::spawn(async move {
-                let mut actor = consumers::persist::PersistConsumer::new(
-                    event_store,
-                    session_store,
-                    shared_projections,
-                    shared_projects,
-                    shared_names,
-                    plan_store,
-                );
-                match persist_bus.subscribe("events.>").await {
-                    Ok(mut sub) => {
-                        while let Some(batch) = sub.receiver.recv().await {
-                            let project_id = if batch.project_id.is_empty() {
-                                None
-                            } else {
-                                Some(batch.project_id.as_str())
-                            };
-                            let result = actor
-                                .process_batch(&batch.session_id, &batch.events, project_id)
-                                .await;
-                            if result.persisted > 0 {
-                                log_event(
-                                    "persist",
-                                    &format!(
-                                        "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m persisted ({} skipped)",
-                                        short_id(&batch.session_id),
-                                        result.persisted,
-                                        result.skipped
+            tokio::spawn(tracing::Instrument::instrument(
+                // E-03: supervised. The factory clones what a run needs; a run that
+                // dies is restarted with backoff and logged (consumer_restarted).
+                consumers::supervision::supervise_after(
+                    "persist",
+                    gate(),
+                    move || {
+                        let event_store = event_store.clone();
+                        let data_dir = data_dir.clone();
+                        let shared_projections = shared_projections.clone();
+                        let shared_projects = shared_projects.clone();
+                        let shared_names = shared_names.clone();
+                        let plan_store = plan_store.clone();
+                        let persist_bus = persist_bus.clone();
+                        let session_store =
+                            open_story_store::persistence::SessionStore::new(&data_dir)
+                                .expect("create session store for persist consumer");
+                        Box::pin(async move {
+                            let mut actor = consumers::persist::PersistConsumer::new(
+                                event_store,
+                                session_store,
+                                shared_projections,
+                                shared_projects,
+                                shared_names,
+                                plan_store,
+                            );
+                            match persist_bus
+                                .subscribe_durable(
+                                    "events",
+                                    "events.>",
+                                    &consumers::durable_spec(
+                                        "persist",
+                                        open_story_core::host::host(),
                                     ),
-                                );
+                                )
+                                .await
+                            {
+                                Ok(sub) => {
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
+                                        "persist",
+                                        sub.receiver,
+                                    );
+                                    while let Some(batch) = driven.next().await {
+                                        let project_id = if batch.project_id.is_empty() {
+                                            None
+                                        } else {
+                                            Some(batch.project_id.as_str())
+                                        };
+                                        let result = actor
+                                            .process_batch(
+                                                &batch.session_id,
+                                                &batch.events,
+                                                project_id,
+                                            )
+                                            .await;
+                                        // The consumer logs the batch itself (L-03,
+                                        // event=batch_persisted with session_id).
+                                        let _ = result;
+                                        driven.handled().await;
+                                    }
+                                    // E-02: a closed subscription is an error, never a silent return.
+                                    driven.finish()
+                                }
+                                Err(e) => {
+                                    Err(consumers::supervision::ConsumerExit::SubscribeFailed {
+                                        error: e.to_string(),
+                                    })
+                                }
                             }
-                        }
-                    }
-                    Err(e) => eprintln!("Persist consumer error: {e}"),
-                }
-            });
+                        })
+                    },
+                    tokio::time::sleep,
+                ),
+                tracing::info_span!("consumer", actor = "persist"),
+            ));
+        }
+
+        // ── Actor 1b: presence consumer (P-02) ──
+        // Subscribes to `presence.>` on the presence stream and keeps each
+        // node's latest beat in the presence table. Its own supervised task,
+        // so a fleet that stops reporting never touches session ingestion.
+        {
+            let event_store = state.read().await.store.event_store.clone();
+            let presence_bus = bus.clone();
+            let presence_dir = state.read().await.store.data_dir.clone();
+            tokio::spawn(tracing::Instrument::instrument(
+                consumers::supervision::supervise_after(
+                    "presence",
+                    gate(),
+                    move || {
+                        let event_store = event_store.clone();
+                        let presence_bus = presence_bus.clone();
+                        let presence_log =
+                            open_story_store::persistence::PresenceLog::new(&presence_dir).ok();
+                        Box::pin(async move {
+                            match presence_bus
+                                .subscribe_durable(
+                                    "presence",
+                                    "presence.>",
+                                    &consumers::durable_spec(
+                                        "presence",
+                                        open_story_core::host::host(),
+                                    ),
+                                )
+                                .await
+                            {
+                                Ok(sub) => {
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
+                                        "presence",
+                                        sub.receiver,
+                                    );
+                                    while let Some(batch) = driven.next().await {
+                                        consumers::presence::store_presence(
+                                            &*event_store,
+                                            presence_log.as_ref(),
+                                            &batch.events,
+                                        )
+                                        .await;
+                                        driven.handled().await;
+                                    }
+                                    driven.finish()
+                                }
+                                Err(e) => {
+                                    Err(consumers::supervision::ConsumerExit::SubscribeFailed {
+                                        error: e.to_string(),
+                                    })
+                                }
+                            }
+                        })
+                    },
+                    tokio::time::sleep,
+                ),
+                tracing::info_span!("consumer", actor = "presence"),
+            ));
         }
 
         // ── Actor 2: patterns consumer ──
@@ -265,74 +387,134 @@ pub async fn run_server(
             let event_store = state.read().await.store.event_store.clone();
             let patterns_bus = bus.clone();
             let patterns_state = state.clone();
-            tokio::spawn(async move {
-                let mut actor = consumers::patterns::PatternsConsumer::new();
-                match patterns_bus.subscribe("events.>").await {
-                    Ok(mut sub) => {
-                        while let Some(batch) = sub.receiver.recv().await {
-                            let result = actor.process_batch(&batch.session_id, &batch.events);
-
-                            // Persist turns and patterns to the EventStore
-                            for turn in &result.turns {
-                                let _ = event_store.insert_turn(&batch.session_id, turn).await;
-                            }
-                            for pe in &result.patterns {
-                                let _ = event_store.insert_pattern(&batch.session_id, pe).await;
-                            }
-
-                            if !result.patterns.is_empty() {
-                                // Mirror into AppState.detected_patterns so
-                                // the WebSocket initial_state handshake can
-                                // serve them to fresh clients without a DB
-                                // roundtrip. Shared Arc<DashMap> — no outer
-                                // lock needed.
-                                {
-                                    let s = patterns_state.read().await;
-                                    let mut entry = s
-                                        .store
-                                        .detected_patterns
-                                        .entry(batch.session_id.clone())
-                                        .or_default();
-                                    entry.extend(result.patterns.iter().cloned());
-                                }
-
-                                // Publish to patterns.{project}.{session}
-                                // for downstream consumers (live story
-                                // broadcast, etc.). Best-effort: a publish
-                                // failure logs but doesn't block the
-                                // pipeline — the patterns are already
-                                // durable in the EventStore.
-                                let project = if batch.project_id.is_empty() {
-                                    "default"
-                                } else {
-                                    batch.project_id.as_str()
-                                };
-                                let subject = format!("patterns.{}.{}", project, batch.session_id,);
-                                if let Ok(payload) = serde_json::to_vec(&result.patterns) {
-                                    if let Err(e) =
-                                        patterns_bus.publish_bytes(&subject, &payload).await
-                                    {
-                                        eprintln!(
-                                            "patterns consumer publish_bytes({subject}) failed: {e}"
-                                        );
-                                    }
-                                }
-
-                                log_event(
-                                    "patterns",
-                                    &format!(
-                                        "\x1b[33m{}\x1b[0m \x1b[35m{} patterns, {} turns\x1b[0m",
-                                        short_id(&batch.session_id),
-                                        result.patterns.len(),
-                                        result.turns.len()
+            tokio::spawn(tracing::Instrument::instrument(
+                // E-03: supervised. The factory clones what a run needs; a run that
+                // dies is restarted with backoff and logged (consumer_restarted).
+                consumers::supervision::supervise_after(
+                    "patterns",
+                    gate(),
+                    move || {
+                        let event_store = event_store.clone();
+                        let patterns_bus = patterns_bus.clone();
+                        let patterns_state = patterns_state.clone();
+                        Box::pin(async move {
+                            let mut actor = consumers::patterns::PatternsConsumer::new();
+                            match patterns_bus
+                                .subscribe_durable(
+                                    "events",
+                                    "events.>",
+                                    &consumers::durable_spec(
+                                        "patterns",
+                                        open_story_core::host::host(),
                                     ),
-                                );
+                                )
+                                .await
+                            {
+                                Ok(sub) => {
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
+                                        "patterns",
+                                        sub.receiver,
+                                    );
+                                    while let Some(batch) = driven.next().await {
+                                        let result =
+                                            actor.process_batch(&batch.session_id, &batch.events);
+
+                                        // Persist turns and patterns to the EventStore
+                                        for turn in &result.turns {
+                                            if let Err(e) = event_store
+                                                .insert_turn(&batch.session_id, turn)
+                                                .await
+                                            {
+                                                open_story_server::logging::failed(
+                                                    "turn_insert",
+                                                    &e,
+                                                );
+                                            }
+                                        }
+                                        for pe in &result.patterns {
+                                            if let Err(e) = event_store
+                                                .insert_pattern(&batch.session_id, pe)
+                                                .await
+                                            {
+                                                open_story_server::logging::failed(
+                                                    "pattern_insert",
+                                                    &e,
+                                                );
+                                            }
+                                        }
+
+                                        if !result.patterns.is_empty() {
+                                            // Mirror into AppState.detected_patterns so
+                                            // the WebSocket initial_state handshake can
+                                            // serve them to fresh clients without a DB
+                                            // roundtrip. Shared Arc<DashMap> — no outer
+                                            // lock needed.
+                                            {
+                                                let s = patterns_state.read().await;
+                                                let mut entry = s
+                                                    .store
+                                                    .detected_patterns
+                                                    .entry(batch.session_id.clone())
+                                                    .or_default();
+                                                entry.extend(result.patterns.iter().cloned());
+                                            }
+
+                                            // Publish to patterns.{project}.{session}
+                                            // for downstream consumers (live story
+                                            // broadcast, etc.). Best-effort: a publish
+                                            // failure logs but doesn't block the
+                                            // pipeline — the patterns are already
+                                            // durable in the EventStore.
+                                            let project = if batch.project_id.is_empty() {
+                                                "default"
+                                            } else {
+                                                batch.project_id.as_str()
+                                            };
+                                            let subject = format!(
+                                                "patterns.{}.{}",
+                                                project, batch.session_id,
+                                            );
+                                            if let Ok(payload) =
+                                                serde_json::to_vec(&result.patterns)
+                                            {
+                                                if let Err(e) = patterns_bus
+                                                    .publish_bytes(&subject, &payload)
+                                                    .await
+                                                {
+                                                    eprintln!(
+                                                    "patterns consumer publish_bytes({subject}) failed: {e}"
+                                                );
+                                                }
+                                            }
+
+                                            log_event(
+                                                "patterns",
+                                                &format!(
+                                                "\x1b[33m{}\x1b[0m \x1b[35m{} patterns, {} turns\x1b[0m",
+                                                short_id(&batch.session_id),
+                                                result.patterns.len(),
+                                                result.turns.len()
+                                            ),
+                                            );
+                                        }
+                                        driven.handled().await;
+                                    }
+                                    // E-02: a closed subscription is an error, never a silent return.
+                                    driven.finish()
+                                }
+                                Err(e) => {
+                                    Err(consumers::supervision::ConsumerExit::SubscribeFailed {
+                                        error: e.to_string(),
+                                    })
+                                }
                             }
-                        }
-                    }
-                    Err(e) => eprintln!("Patterns consumer error: {e}"),
-                }
-            });
+                        })
+                    },
+                    tokio::time::sleep,
+                ),
+                tracing::info_span!("consumer", actor = "patterns"),
+            ));
         }
 
         // ── Actor 3: projections consumer (owns session metadata) ──
@@ -351,22 +533,61 @@ pub async fn run_server(
                     s.store.session_children.clone(),
                 )
             };
-            tokio::spawn(async move {
-                let mut actor = consumers::projections::ProjectionsConsumer::new(
-                    shared_event_store,
-                    shared_projections,
-                    shared_parents,
-                    shared_children,
-                );
-                match projections_bus.subscribe("events.>").await {
-                    Ok(mut sub) => {
-                        while let Some(batch) = sub.receiver.recv().await {
-                            actor.process_batch(&batch.session_id, &batch.events).await;
-                        }
-                    }
-                    Err(e) => eprintln!("Projections consumer error: {e}"),
-                }
-            });
+            tokio::spawn(tracing::Instrument::instrument(
+                // E-03: supervised. The factory clones what a run needs; a run that
+                // dies is restarted with backoff and logged (consumer_restarted).
+                consumers::supervision::supervise_after(
+                    "projections",
+                    gate(),
+                    move || {
+                        let projections_bus = projections_bus.clone();
+                        let shared_event_store = shared_event_store.clone();
+                        let shared_projections = shared_projections.clone();
+                        let shared_parents = shared_parents.clone();
+                        let shared_children = shared_children.clone();
+                        Box::pin(async move {
+                            let mut actor = consumers::projections::ProjectionsConsumer::new(
+                                shared_event_store,
+                                shared_projections,
+                                shared_parents,
+                                shared_children,
+                            );
+                            match projections_bus
+                                .subscribe_durable(
+                                    "events",
+                                    "events.>",
+                                    &consumers::durable_spec(
+                                        "projections",
+                                        open_story_core::host::host(),
+                                    ),
+                                )
+                                .await
+                            {
+                                Ok(sub) => {
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
+                                        "projections",
+                                        sub.receiver,
+                                    );
+                                    while let Some(batch) = driven.next().await {
+                                        actor.process_batch(&batch.session_id, &batch.events).await;
+                                        driven.handled().await;
+                                    }
+                                    // E-02: a closed subscription is an error, never a silent return.
+                                    driven.finish()
+                                }
+                                Err(e) => {
+                                    Err(consumers::supervision::ConsumerExit::SubscribeFailed {
+                                        error: e.to_string(),
+                                    })
+                                }
+                            }
+                        })
+                    },
+                    tokio::time::sleep,
+                ),
+                tracing::info_span!("consumer", actor = "projections"),
+            ));
         }
 
         // ── Actor 4: broadcast consumer (WebSocket assembly only) ──
@@ -380,75 +601,112 @@ pub async fn run_server(
         {
             let broadcast_state = state.clone();
             let broadcast_bus = bus.clone();
-            tokio::spawn(async move {
-                let mut consumer = consumers::broadcast::BroadcastConsumer::new();
-                match broadcast_bus.subscribe("events.>").await {
-                    Ok(mut sub) => {
-                        while let Some(batch) = sub.receiver.recv().await {
-                            let summary = event_type_summary(&batch.events);
-                            let session_id = batch.session_id.clone();
-                            let project_id = if batch.project_id.is_empty() {
-                                None
-                            } else {
-                                Some(batch.project_id.clone())
-                            };
-
-                            // Snapshot projection + project display name from
-                            // the shared DashMaps. Drop the outer read guard
-                            // before invoking process_batch so API readers
-                            // and other actors aren't contended on the tokio
-                            // RwLock.
-                            let (projection, project_name, tx) = {
-                                let s = broadcast_state.read().await;
-                                let proj = s
-                                    .store
-                                    .projections
-                                    .get(&session_id)
-                                    .map(|r| r.value().clone());
-                                let pname = s
-                                    .store
-                                    .session_project_names
-                                    .get(&session_id)
-                                    .map(|r| r.value().clone());
-                                (proj, pname, s.broadcast_tx.clone())
-                            };
-
-                            let Some(proj_snapshot) = projection else {
-                                // ProjectionsConsumer hasn't processed this
-                                // session's first batch yet — skip broadcast
-                                // this tick; the next batch will have a
-                                // snapshot and catch up.
-                                continue;
-                            };
-
-                            let messages = consumer.process_batch(
-                                &session_id,
-                                &batch.events,
-                                &proj_snapshot,
-                                project_id,
-                                project_name,
-                            );
-                            let emitted = messages.len();
-                            for msg in messages {
-                                let _ = tx.send(msg);
-                            }
-
-                            if emitted > 0 {
-                                log_event(
-                                    "broadcast",
-                                    &format!(
-                                        "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
-                                        short_id(&session_id),
-                                        emitted,
-                                        summary
+            tokio::spawn(tracing::Instrument::instrument(
+                // E-03: supervised. The factory clones what a run needs; a run that
+                // dies is restarted with backoff and logged (consumer_restarted).
+                consumers::supervision::supervise_after(
+                    "broadcast",
+                    gate(),
+                    move || {
+                        let broadcast_state = broadcast_state.clone();
+                        let broadcast_bus = broadcast_bus.clone();
+                        Box::pin(async move {
+                            let mut consumer = consumers::broadcast::BroadcastConsumer::new();
+                            match broadcast_bus
+                                .subscribe_durable(
+                                    "events",
+                                    "events.>",
+                                    &consumers::durable_spec(
+                                        "broadcast",
+                                        open_story_core::host::host(),
                                     ),
-                                );
+                                )
+                                .await
+                            {
+                                Ok(sub) => {
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
+                                        "broadcast",
+                                        sub.receiver,
+                                    );
+                                    while let Some(batch) = driven.next().await {
+                                        let summary = event_type_summary(&batch.events);
+                                        let session_id = batch.session_id.clone();
+                                        let project_id = if batch.project_id.is_empty() {
+                                            None
+                                        } else {
+                                            Some(batch.project_id.clone())
+                                        };
+
+                                        // Snapshot projection + project display name from
+                                        // the shared DashMaps. Drop the outer read guard
+                                        // before invoking process_batch so API readers
+                                        // and other actors aren't contended on the tokio
+                                        // RwLock.
+                                        let (projection, project_name, tx) = {
+                                            let s = broadcast_state.read().await;
+                                            let proj = s
+                                                .store
+                                                .projections
+                                                .get(&session_id)
+                                                .map(|r| r.value().clone());
+                                            let pname = s
+                                                .store
+                                                .session_project_names
+                                                .get(&session_id)
+                                                .map(|r| r.value().clone());
+                                            (proj, pname, s.broadcast_tx.clone())
+                                        };
+
+                                        let Some(proj_snapshot) = projection else {
+                                            // ProjectionsConsumer hasn't processed this
+                                            // session's first batch yet — skip broadcast
+                                            // this tick; the next batch will have a
+                                            // snapshot and catch up.
+                                            driven.handled().await;
+                                            continue;
+                                        };
+
+                                        let messages = consumer.process_batch(
+                                            &session_id,
+                                            &batch.events,
+                                            &proj_snapshot,
+                                            project_id,
+                                            project_name,
+                                        );
+                                        let emitted = messages.len();
+                                        for msg in messages {
+                                            let _ = tx.send(msg); // audit-ok: no subscribers is not a failure
+                                        }
+
+                                        if emitted > 0 {
+                                            log_event(
+                                                "broadcast",
+                                                &format!(
+                                                    "\x1b[33m{}\x1b[0m \x1b[32m+{}\x1b[0m ({})",
+                                                    short_id(&session_id),
+                                                    emitted,
+                                                    summary
+                                                ),
+                                            );
+                                        }
+                                        driven.handled().await;
+                                    }
+                                    // E-02: a closed subscription is an error, never a silent return.
+                                    driven.finish()
+                                }
+                                Err(e) => {
+                                    Err(consumers::supervision::ConsumerExit::SubscribeFailed {
+                                        error: e.to_string(),
+                                    })
+                                }
                             }
-                        }
-                    }
-                    Err(e) => eprintln!("Broadcast consumer error: {e}"),
-                }
-            });
+                        })
+                    },
+                    tokio::time::sleep,
+                ),
+                tracing::info_span!("consumer", actor = "broadcast"),
+            ));
         }
 
         // ── Actor 5: admin topology broadcaster (SICP stream-mux) ──
@@ -498,11 +756,10 @@ pub async fn run_server(
                         break; // broadcaster dropped
                     }
                     let frame = topology_rx.borrow_and_update().clone();
-                    let msg = crate::server::BroadcastMessage::AdminTopologyChanged {
-                        topology: frame,
-                    };
+                    let msg =
+                        crate::server::BroadcastMessage::AdminTopologyChanged { topology: frame };
                     let tx = push_state.read().await.broadcast_tx.clone();
-                    let _ = tx.send(msg);
+                    let _ = tx.send(msg); // audit-ok: no subscribers is not a failure
                 }
             });
         }
@@ -530,6 +787,14 @@ pub async fn run_server(
     // time we reach here, but we tolerate None defensively.
     let backfill_window: Option<u64> = Some(state.read().await.config.watch_backfill_hours);
     let person_snapshot: Option<config::Person> = state.read().await.config.person.clone();
+    // P-01: the node's presence beat. Every node, publisher or consumer,
+    // from the same health body `/api/health` serves. The task lives as
+    // long as the process; a failed beat is logged and the next one tries.
+    let presence_secs = state.read().await.config.presence_interval_secs.max(1);
+    let _presence = open_story_server::presence::spawn(
+        state.clone(),
+        std::time::Duration::from_secs(presence_secs),
+    );
     // Node-level publish switch: when false, own events are routed to the
     // `local.>` subject (stored + visible here, never federated) instead of
     // `events.{host}.>`. A plain Copy bool, captured per watcher closure.
@@ -590,6 +855,14 @@ pub async fn run_server(
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
                         let started = std::time::Instant::now();
                         let rt = tokio::runtime::Handle::current();
+                        // O-03: the publish stage, under the egress subject.
+                        let egress = egress_subject(subject, publish_sessions);
+                        open_story_core::trace::mark_batch(
+                            "publish",
+                            &events,
+                            Some(&egress),
+                            &actor,
+                        );
                         let result = rt.block_on(
                             watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
                         );
@@ -608,7 +881,15 @@ pub async fn run_server(
                         );
                         metrics::record_watcher_publish(&actor, success);
                         if let Err(e) = result {
-                            eprintln!("Bus publish error: {e}");
+                            // E-05: subject, session, size, and the whole error chain;
+                            // `{e}` alone dropped the cause.
+                            open_story_server::logging::publish_failed(
+                                &actor,
+                                subject,
+                                session_id,
+                                events.len(),
+                                &e,
+                            );
                         }
                     },
                 ) {
@@ -659,6 +940,14 @@ pub async fn run_server(
                         let last_subtype = events.last().and_then(|event| event.subtype.clone());
                         let started = std::time::Instant::now();
                         let rt = tokio::runtime::Handle::current();
+                        // O-03: the publish stage, under the egress subject.
+                        let egress = egress_subject(subject, publish_sessions);
+                        open_story_core::trace::mark_batch(
+                            "publish",
+                            &events,
+                            Some(&egress),
+                            &actor,
+                        );
                         let result = rt.block_on(
                             watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
                         );
@@ -677,7 +966,15 @@ pub async fn run_server(
                         );
                         metrics::record_watcher_publish(&actor, success);
                         if let Err(e) = result {
-                            eprintln!("Pi-mono bus publish error: {e}");
+                            // E-05: subject, session, size, and the whole error chain;
+                            // `{e}` alone dropped the cause.
+                            open_story_server::logging::publish_failed(
+                                &actor,
+                                subject,
+                                session_id,
+                                events.len(),
+                                &e,
+                            );
                         }
                     },
                 ) {
@@ -730,10 +1027,24 @@ pub async fn run_server(
                             events,
                         };
                         let rt = tokio::runtime::Handle::current();
-                        if let Err(e) = rt.block_on(
-                            watcher_bus.publish(&egress_subject(subject, publish_sessions), &batch),
-                        ) {
-                            eprintln!("Hermes bus publish error: {e}");
+                        // O-03: the publish stage, under the egress subject.
+                        let egress = egress_subject(subject, publish_sessions);
+                        open_story_core::trace::mark_batch(
+                            "publish",
+                            &batch.events,
+                            Some(&egress),
+                            "hermes",
+                        );
+                        if let Err(e) = rt.block_on(watcher_bus.publish(&egress, &batch)) {
+                            // E-05: subject, session, size, and the whole error chain;
+                            // `{e}` alone dropped the cause.
+                            open_story_server::logging::publish_failed(
+                                "hermes",
+                                subject,
+                                session_id,
+                                batch.events.len(),
+                                &e,
+                            );
                         }
                     },
                 ) {

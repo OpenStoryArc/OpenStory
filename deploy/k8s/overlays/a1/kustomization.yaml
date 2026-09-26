@@ -1,0 +1,21 @@
+# One node on a1 in an os-loop- namespace (G-08): experiments only, torn
+# down by scripts/k3s_smoke.sh.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: os-loop-a1
+
+resources:
+  - ../../base
+
+components:
+  - ../../components/ops-agent
+
+patches:
+  - target:
+      kind: Deployment
+      name: openstory
+    patch: |-
+      - op: replace
+        path: /spec/template/spec/containers/0/env/2/value
+        value: a1-node

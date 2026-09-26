@@ -8,7 +8,7 @@ use crate::subscription::{pump_subscription, CancelGuard, Subscribe, Subscriptio
 use anyhow::Result;
 use async_trait::async_trait;
 use open_story_bus::nats_bus::NatsBus as InnerNatsBus;
-use open_story_bus::Bus;
+use open_story_bus::{Bus, IngestBatch};
 use std::sync::Arc;
 use tokio::sync::mpsc;
 
@@ -74,6 +74,14 @@ impl Subscribe for NatsBus {
     /// JetStream stream filtered `ui.>` through the SAME typed pump as observed
     /// events — no raw-bytes special-case. Strictly the authored namespace;
     /// never `events.*`.
+    /// M-06: the proposal lane. The subject is built here, from a literal
+    /// prefix, so the publish-lane scan (M-08) can read it.
+    async fn publish_proposal(&self, hand: &str, batch: &IngestBatch) -> Result<()> {
+        self.inner
+            .publish(&format!("ops.proposal.{hand}"), batch)
+            .await
+    }
+
     async fn subscribe_ui(&self) -> Result<Subscription> {
         let bus_rx = self.inner.subscribe_typed("ui", "ui.>").await?;
 

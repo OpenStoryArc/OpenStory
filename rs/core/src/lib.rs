@@ -12,11 +12,13 @@
 pub mod cloud_event;
 pub mod event_data;
 pub mod host;
+pub mod ops;
 pub mod output;
 pub mod paths;
 pub mod reader;
 pub mod strings;
 pub mod subtype;
+pub mod trace;
 pub mod translate;
 pub mod translate_codex;
 pub mod translate_grok;

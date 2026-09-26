@@ -221,12 +221,14 @@ mod tests {
         let (broadcast_tx, _) = broadcast::channel(256);
         let watch_dir = tmp.path().join("watch");
         std::fs::create_dir_all(&watch_dir).unwrap();
-        let mut config = Config::default();
         // Tests run with a fresh "now"; default 24h would only cover events
         // dated in the last day. Most fixtures use timestamps in 2026, so
         // disable the recency filter (hours = 0 → include everything) unless
         // a test sets it explicitly.
-        config.watch_backfill_hours = 0;
+        let config = Config {
+            watch_backfill_hours: 0,
+            ..Config::default()
+        };
         let initial_topology = crate::admin::compute_topology(
             "test-host",
             config.role,

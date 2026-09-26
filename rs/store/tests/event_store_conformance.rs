@@ -25,7 +25,7 @@ use std::sync::Arc;
 use serde_json::{json, Value};
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
-use open_story_store::event_store::{EventStore, SessionRow};
+use open_story_store::event_store::{BootFacts, EventStore, PresenceRow, SessionRow};
 // Analytics output struct imports get added back as new helpers are
 // written. Keeping the import list minimal to silence unused-import
 // warnings during the Phase 5 TDD walk.
@@ -398,15 +398,40 @@ fn bounds_event(id: &str, session_id: &str, subtype: &str, time: &str) -> Value 
 /// "Last Hour" regression where dead sessions re-surfaced as recent.
 pub async fn it_recompute_session_bounds_excludes_synthesized_subtypes(store: Arc<dyn EventStore>) {
     let sid = "sess-recompute-excl";
-    store.upsert_session(&test_session_row(sid, Some("x"))).await.unwrap();
-    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z")).await.unwrap();
+    store
+        .upsert_session(&test_session_row(sid, Some("x")))
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z"),
+        )
+        .await
+        .unwrap();
     // Boot-stamped snapshot, far in the future — must be ignored.
-    store.insert_event(sid, &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z")).await.unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z"),
+        )
+        .await
+        .unwrap();
 
     let (first, last) = store.recompute_session_bounds(sid).await.unwrap();
     assert_eq!(first.as_deref(), Some("2025-01-14T00:00:00Z"));
-    assert_eq!(last.as_deref(), Some("2025-01-14T00:05:00Z"), "snapshot time must not define last_event");
+    assert_eq!(
+        last.as_deref(),
+        Some("2025-01-14T00:05:00Z"),
+        "snapshot time must not define last_event"
+    );
 
     // The persisted row must reflect the recomputed bounds.
     let sessions = store.list_sessions().await.unwrap();
@@ -428,12 +453,34 @@ pub async fn it_recompute_session_bounds_lowers_a_polluted_value(store: Arc<dyn 
     store.upsert_session(&polluted).await.unwrap();
 
     // The only real activity ends at 00:05 — plus a boot-stamped snapshot.
-    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z")).await.unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m1", sid, "message.user.prompt", "2025-01-14T00:00:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m2", sid, "message.assistant.text", "2025-01-14T00:05:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("s1", sid, "file.snapshot", "2025-06-01T00:00:00Z"),
+        )
+        .await
+        .unwrap();
 
     let (_first, last) = store.recompute_session_bounds(sid).await.unwrap();
-    assert_eq!(last.as_deref(), Some("2025-01-14T00:05:00Z"), "recompute must lower the polluted last_event");
+    assert_eq!(
+        last.as_deref(),
+        Some("2025-01-14T00:05:00Z"),
+        "recompute must lower the polluted last_event"
+    );
 
     let sessions = store.list_sessions().await.unwrap();
     let row = sessions.iter().find(|r| r.id == sid).expect("row exists");
@@ -462,8 +509,20 @@ pub async fn it_recompute_session_bounds_preserves_live_frontier(store: Arc<dyn 
     // On disk: only earlier real events. The 20:00 event is still in flight
     // (NATS-bumped the row but hasn't been persisted) — nothing on disk reaches
     // the frontier.
-    store.insert_event(sid, &bounds_event("m1", sid, "message.user.prompt", "2026-05-01T10:00:00Z")).await.unwrap();
-    store.insert_event(sid, &bounds_event("m2", sid, "message.assistant.text", "2026-05-01T10:00:02Z")).await.unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m1", sid, "message.user.prompt", "2026-05-01T10:00:00Z"),
+        )
+        .await
+        .unwrap();
+    store
+        .insert_event(
+            sid,
+            &bounds_event("m2", sid, "message.assistant.text", "2026-05-01T10:00:02Z"),
+        )
+        .await
+        .unwrap();
 
     let (_first, last) = store.recompute_session_bounds(sid).await.unwrap();
     assert_eq!(
@@ -755,6 +814,71 @@ pub async fn it_upserts_a_plan_idempotently(store: Arc<dyn EventStore>) {
 // ───────────────────────────────────────────────────────────────────────
 // Read path conformance
 // ───────────────────────────────────────────────────────────────────────
+
+/// M-06 verify: FTS documents are countable per session on every backend.
+pub async fn it_counts_fts_documents_for_a_session(store: Arc<dyn EventStore>) {
+    store
+        .index_fts("e1", "sess-fts", "message.user.prompt", "hello")
+        .await
+        .unwrap();
+    store
+        .index_fts("e2", "sess-fts", "message.assistant.text", "world")
+        .await
+        .unwrap();
+    store
+        .index_fts("e3", "sess-other", "message.user.prompt", "elsewhere")
+        .await
+        .unwrap();
+    assert_eq!(
+        store.fts_count_for_session("sess-fts").await.unwrap(),
+        Some(2)
+    );
+    assert_eq!(
+        store.fts_count_for_session("sess-none").await.unwrap(),
+        Some(0)
+    );
+}
+
+/// P-02: presence is its own table; one row per node, the latest beat wins.
+pub async fn it_upserts_presence_and_returns_the_latest_per_node(store: Arc<dyn EventStore>) {
+    let row = |host: &str, principal: &str, time: &str, sha: &str| PresenceRow {
+        host: host.to_string(),
+        principal_id: principal.to_string(),
+        person_id: Some("person-1".to_string()),
+        time: time.to_string(),
+        body: json!({"git_sha": sha, "status": "ok"}),
+    };
+    store
+        .upsert_presence(&row("node-a", "dev", "2026-09-23T10:00:00.000Z", "aaa"))
+        .await
+        .unwrap();
+    store
+        .upsert_presence(&row("node-a", "dev", "2026-09-23T10:00:15.000Z", "bbb"))
+        .await
+        .unwrap();
+    store
+        .upsert_presence(&row("node-b", "hub", "2026-09-23T09:59:00.000Z", "ccc"))
+        .await
+        .unwrap();
+
+    let mut rows = store.latest_presence().await.unwrap();
+    rows.sort_by(|a, b| a.host.cmp(&b.host));
+    assert_eq!(rows.len(), 2, "one row per (host, principal): {rows:?}");
+    assert_eq!(rows[0].host, "node-a");
+    assert_eq!(rows[0].principal_id, "dev");
+    assert_eq!(rows[0].person_id.as_deref(), Some("person-1"));
+    assert_eq!(
+        rows[0].time, "2026-09-23T10:00:15.000Z",
+        "the latest beat wins"
+    );
+    assert_eq!(rows[0].body["git_sha"], "bbb");
+    assert_eq!(rows[1].host, "node-b");
+    assert_eq!(rows[1].body["git_sha"], "ccc");
+    assert!(
+        store.list_sessions().await.unwrap().is_empty(),
+        "presence never becomes a session"
+    );
+}
 
 pub async fn it_returns_session_events_ordered_by_timestamp(store: Arc<dyn EventStore>) {
     // Insert out of order; they must come back ordered by `time`.
@@ -1998,6 +2122,135 @@ pub async fn it_returns_file_impact_with_reads_and_writes(store: Arc<dyn EventSt
 // its own #[tokio::test]. When MongoStore lands, add a parallel `mod
 // mongo_backend` with the same shape — every test must pass against
 // both backends or the trait contract is wrong.
+// ───────────────────────────────────────────────────────────────────────
+// Boot facts — row B-01 of the boot-pass plan
+// (docs/research/openstory-as-node/2026-09-25-boot-pass-memory.md).
+// The boot pass asks each session for two facts and nothing else.
+// ───────────────────────────────────────────────────────────────────────
+
+/// A translated event whose `data` is exactly `data` plus the seq.
+fn boot_event(id: &str, session_id: &str, timestamp: &str, seq: u64, mut data: Value) -> Value {
+    data["seq"] = json!(seq);
+    json!({
+        "id": id,
+        "type": "io.arc.event",
+        "subtype": "message.user.prompt",
+        "source": format!("arc://transcript/{session_id}"),
+        "time": timestamp,
+        "data": data,
+    })
+}
+
+pub async fn it_answers_boot_facts_from_the_first_events(store: Arc<dyn EventStore>) {
+    // Event 1 carries the parent link (a subagent's events name the parent
+    // in data.session_id); event 3 carries the cwd; event 2 carries neither.
+    // Inserted out of time order so the answer proves it reads by time.
+    let e3 = boot_event(
+        "bf-3",
+        "child-1",
+        "2025-01-14T00:00:03Z",
+        3,
+        json!({"session_id": "child-1", "raw": {"cwd": "/work/proj-a"}}),
+    );
+    let e1 = boot_event(
+        "bf-1",
+        "child-1",
+        "2025-01-14T00:00:01Z",
+        1,
+        json!({"session_id": "parent-1"}),
+    );
+    let e2 = boot_event(
+        "bf-2",
+        "child-1",
+        "2025-01-14T00:00:02Z",
+        2,
+        json!({"text": "nothing to see"}),
+    );
+    store.insert_batch("child-1", &[e3, e1, e2]).await.unwrap();
+
+    let facts = store.session_boot_facts("child-1").await.unwrap();
+    assert_eq!(
+        facts,
+        BootFacts {
+            parent_session: Some("parent-1".to_string()),
+            cwd: Some("/work/proj-a".to_string()),
+        }
+    );
+}
+
+pub async fn it_answers_none_boot_facts_for_a_session_with_neither(store: Arc<dyn EventStore>) {
+    // Its own id in data.session_id is not a parent link, and no cwd anywhere.
+    let events: Vec<Value> = (1..=3)
+        .map(|i| {
+            boot_event(
+                &format!("bn-{i}"),
+                "solo-1",
+                &format!("2025-01-14T00:00:0{i}Z"),
+                i,
+                json!({"session_id": "solo-1", "raw": {"type": "user"}}),
+            )
+        })
+        .collect();
+    store.insert_batch("solo-1", &events).await.unwrap();
+
+    let facts = store.session_boot_facts("solo-1").await.unwrap();
+    assert_eq!(facts, BootFacts::default());
+
+    let unknown = store.session_boot_facts("never-seen").await.unwrap();
+    assert_eq!(
+        unknown,
+        BootFacts::default(),
+        "an unknown session answers None, not an error"
+    );
+}
+
+pub async fn it_answers_boot_facts_for_a_5000_event_session_in_under_5ms(
+    store: Arc<dyn EventStore>,
+) {
+    // Shaped like a real agent session: every event carries the parent link
+    // and the cwd, so the answer is complete after the first event and the
+    // other 4999 must not be read.
+    let events: Vec<Value> = (1..=5000u64)
+        .map(|i| {
+            boot_event(
+                &format!("big-{i}"),
+                "big-child",
+                &format!(
+                    "2025-01-14T{:02}:{:02}:{:02}Z",
+                    i / 3600,
+                    (i / 60) % 60,
+                    i % 60
+                ),
+                i,
+                json!({
+                    "session_id": "big-parent",
+                    "raw": {"cwd": "/work/big", "message": {"content": "x".repeat(2000)}}
+                }),
+            )
+        })
+        .collect();
+    let inserted = store.insert_batch("big-child", &events).await.unwrap();
+    assert_eq!(inserted, 5000);
+
+    let mut best = std::time::Duration::MAX;
+    let mut facts = BootFacts::default();
+    for _ in 0..5 {
+        let t0 = std::time::Instant::now();
+        facts = store.session_boot_facts("big-child").await.unwrap();
+        best = best.min(t0.elapsed());
+    }
+    assert_eq!(
+        facts,
+        BootFacts {
+            parent_session: Some("big-parent".to_string()),
+            cwd: Some("/work/big".to_string()),
+        }
+    );
+    assert!(
+        best < std::time::Duration::from_millis(5),
+        "best of 5 calls took {best:?}; the query must stop at the window, not read 5000 events"
+    );
+}
 
 /// All conformance test names — single source of truth for both backends.
 ///
@@ -2043,6 +2296,8 @@ macro_rules! for_each_conformance_test {
         $macro!(it_filters_session_patterns_by_type);
         $macro!(it_persists_and_queries_a_structural_turn);
         $macro!(it_upserts_a_plan_idempotently);
+        $macro!(it_upserts_presence_and_returns_the_latest_per_node);
+        $macro!(it_counts_fts_documents_for_a_session);
         // Reads
         $macro!(it_returns_session_events_ordered_by_timestamp);
         $macro!(it_round_trips_an_event_payload_losslessly);
@@ -2081,6 +2336,10 @@ macro_rules! for_each_conformance_test {
         $macro!(it_returns_token_usage_for_a_specific_session);
         $macro!(it_returns_zero_token_summary_when_no_sessions_match);
         $macro!(it_returns_daily_token_usage_bucketed_by_date);
+        // Boot facts — B-01
+        $macro!(it_answers_boot_facts_from_the_first_events);
+        $macro!(it_answers_none_boot_facts_for_a_session_with_neither);
+        $macro!(it_answers_boot_facts_for_a_5000_event_session_in_under_5ms);
     };
 }
 

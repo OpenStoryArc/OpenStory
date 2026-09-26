@@ -50,10 +50,12 @@ async fn state_with_tokens_and_role(
 ) -> Arc<RwLock<AppState>> {
     let store = StoreState::new(tmp.path()).unwrap();
     let (broadcast_tx, _) = broadcast::channel(256);
-    let mut config = Config::default();
-    config.api_token = api_token.to_string();
-    config.admin_token = admin_token.to_string();
-    config.local_principal_id = TEST_PRINCIPAL.to_string();
+    let config = Config {
+        api_token: api_token.to_string(),
+        admin_token: admin_token.to_string(),
+        local_principal_id: TEST_PRINCIPAL.to_string(),
+        ..Config::default()
+    };
     let initial_topology = compute_topology(
         "test-host",
         config.role,
@@ -259,7 +261,7 @@ async fn empty_local_principal_id_is_403_on_role_gated_routes() {
     // No identity configured → no permission. The role check 403s
     // *before* the token check has a chance to verify the bearer.
     let tmp = tempfile::tempdir().unwrap();
-    let mut state = state_with_tokens_and_role(
+    let state = state_with_tokens_and_role(
         &tmp,
         "api-secret",
         "admin-secret",
@@ -275,6 +277,6 @@ async fn empty_local_principal_id_is_403_on_role_gated_routes() {
         let s = state.read().await;
         s.config.clone()
     };
-    let resp = put_share_policy(Arc::clone(&mut state), &config, "admin-secret").await;
+    let resp = put_share_policy(Arc::clone(&state), &config, "admin-secret").await;
     assert_eq!(resp.status(), StatusCode::FORBIDDEN);
 }

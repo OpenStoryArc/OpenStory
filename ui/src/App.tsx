@@ -7,8 +7,7 @@ import { useHashRoute } from "@/hooks/use-hash-route";
 import { Timeline } from "@/components/Timeline";
 import { Sidebar } from "@/components/Sidebar";
 import { TabBar } from "@/components/layout/TabBar";
-import { TextSizeControl } from "@/components/layout/TextSizeControl";
-import { ThemeToggle } from "@/components/layout/ThemeToggle";
+import { HeaderStatus } from "@/components/layout/HeaderStatus";
 import { ExploreView } from "@/components/explore/ExploreView";
 import { StoryView } from "@/components/story/StoryView";
 import { SessionsCanvas } from "@/components/canvas/SessionsCanvas";
@@ -66,12 +65,6 @@ import type { InteractionLayout } from "@/lib/interaction";
 import type { ViewMode, CrossLink } from "@/lib/navigation";
 import { switchTabRoute } from "@/lib/navigation";
 
-const STATUS_INDICATOR = {
-  connected: { color: "bg-green-400", label: "Connected" },
-  connecting: { color: "bg-yellow-400 animate-pulse", label: "Connecting" },
-  disconnected: { color: "bg-red-400", label: "Disconnected" },
-} as const;
-
 export function App() {
   useEffect(() => {
     const cleanup = connect();
@@ -81,7 +74,6 @@ export function App() {
   const state$ = useMemo(() => buildSessionState$(wsMessages$()), []);
   const state = useObservable(state$, EMPTY_ENRICHED_STATE);
   const status = useConnectionStatus();
-  const { color, label } = STATUS_INDICATOR[status];
 
   const [route, navigate] = useHashRoute();
   // Always-current route for callbacks that must read where the human IS now
@@ -571,31 +563,7 @@ export function App() {
           <h1 className="shrink-0 text-lg font-semibold">Open Story</h1>
           <TabBar active={viewMode} onSwitch={handleSwitchTab} />
         </div>
-        <div className="flex shrink-0 items-center gap-3">
-          <ThemeToggle />
-          <TextSizeControl />
-          <button
-            onClick={() => window.dispatchEvent(new KeyboardEvent("keydown", { key: "k", metaKey: true }))}
-            className="flex items-center gap-1.5 rounded border border-[color:var(--border)] px-2 py-1 text-[11px] text-[color:var(--text-muted)] hover:border-[color:var(--accent)] hover:text-[color:var(--text)] transition-colors"
-            title="Command palette"
-          >
-            <span>Jump to…</span>
-            <kbd className="rounded bg-[color:var(--bg)] px-1 text-[10px]">⌘K</kbd>
-          </button>
-          {drivenBy && (
-            <div
-              className="flex items-center gap-1.5 rounded border border-[color:var(--accent)]/50 bg-[color:var(--accent)]/10 px-2 py-1 text-[11px] text-[color:var(--accent)] animate-pulse"
-              data-testid="driven-by"
-              title="An agent is driving this view. Click anywhere or navigate to take back the wheel."
-            >
-              <span>▸</span> driven by {drivenBy}
-            </div>
-          )}
-          <div className="flex items-center gap-2 text-xs text-[color:var(--text-muted)]" data-testid="connection-status">
-            <span className={`w-2 h-2 rounded-full ${color}`} />
-            {label}
-          </div>
-        </div>
+        <HeaderStatus status={status} drivenBy={drivenBy} />
       </header>
 
       {/* Agent "present" banner — the write seam's message-to-you surface */}

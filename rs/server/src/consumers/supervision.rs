@@ -1,0 +1,285 @@
+//! Consumer supervision (REQUIREMENTS E-02, E-03).
+//!
+//! Every consumer actor is a loop over a bus subscription. Today the loop
+//! ends silently when the subscription closes. `Driven` wraps the receiver:
+//! the loop asks it for the next batch, and when the channel ends it logs
+//! `event=consumer_ended` at ERROR with the actor and the reason, and
+//! `finish` returns that as an error the supervisor (E-03) acts on. A
+//! consumer never disappears without a line.
+
+use open_story_bus::{Acker, Delivery, IngestBatch};
+use tokio::sync::mpsc;
+
+/// Why a consumer loop returned.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ConsumerExit {
+    /// The bus subscription's channel closed; `batches` were handled first.
+    SubscriptionClosed { batches: u64 },
+    /// The bus refused the subscription.
+    SubscribeFailed { error: String },
+}
+
+impl std::fmt::Display for ConsumerExit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ConsumerExit::SubscriptionClosed { batches } => {
+                write!(f, "subscription closed after {batches} batches")
+            }
+            ConsumerExit::SubscribeFailed { error } => write!(f, "subscribe failed: {error}"),
+        }
+    }
+}
+
+impl std::error::Error for ConsumerExit {}
+
+/// Where a driven actor's batches come from: a plain subscription, or a
+/// durable one whose batches carry their acknowledgement (B-11).
+enum Source {
+    Plain(mpsc::Receiver<IngestBatch>),
+    Acked(mpsc::Receiver<Delivery>),
+}
+
+impl Source {
+    async fn recv(&mut self) -> Option<(IngestBatch, Option<Acker>)> {
+        match self {
+            Source::Plain(rx) => rx.recv().await.map(|b| (b, None)),
+            Source::Acked(rx) => rx.recv().await.map(|d| (d.batch, Some(d.ack))),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Source::Plain(rx) => rx.len(),
+            Source::Acked(rx) => rx.len(),
+        }
+    }
+}
+
+/// A consumer's subscription, driven batch by batch with the ending named.
+pub struct Driven {
+    actor: &'static str,
+    rx: Source,
+    /// The acknowledgement of the batch the actor is handling (B-11).
+    pending: Option<Acker>,
+    batches: u64,
+    ended: bool,
+}
+
+impl Driven {
+    pub fn new(actor: &'static str, rx: mpsc::Receiver<IngestBatch>) -> Self {
+        Driven {
+            actor,
+            rx: Source::Plain(rx),
+            pending: None,
+            batches: 0,
+            ended: false,
+        }
+    }
+
+    /// Drive a durable subscription (B-11): each batch is acknowledged by
+    /// [`Driven::handled`] once the actor is done with it, so a restart
+    /// resumes after the last batch the actor finished, not the last one
+    /// the bus handed over.
+    pub fn acked(actor: &'static str, rx: mpsc::Receiver<Delivery>) -> Self {
+        Driven {
+            actor,
+            rx: Source::Acked(rx),
+            pending: None,
+            batches: 0,
+            ended: false,
+        }
+    }
+
+    /// The actor has handled the batch `next` returned: acknowledge it.
+    /// Nothing to do for a plain subscription.
+    pub async fn handled(&mut self) {
+        if let Some(ack) = self.pending.take() {
+            ack.ack().await;
+        }
+    }
+
+    /// The next batch, or `None` once the subscription has ended. The
+    /// ending is logged exactly once, at ERROR, with actor, reason, and the
+    /// number of batches handled before it. Asking for the next batch
+    /// acknowledges the previous one if the actor did not.
+    pub async fn next(&mut self) -> Option<IngestBatch> {
+        self.handled().await;
+        match self.rx.recv().await {
+            Some((batch, ack)) => {
+                self.pending = ack;
+                self.batches += 1;
+                // H-05: what is still queued behind this batch.
+                let lag = self.rx.len() as u64;
+                stats().update(self.actor, |h| {
+                    h.lag = lag;
+                    h.delivered += 1;
+                });
+                Some(batch)
+            }
+            None => {
+                if !self.ended {
+                    self.ended = true;
+                    let actor = self.actor;
+                    let batches = self.batches;
+                    tracing::error!(
+                        event = "consumer_ended",
+                        actor,
+                        reason = "subscription closed",
+                        batches,
+                        "consumer {actor} ended: subscription closed after {batches} batches"
+                    );
+                }
+                None
+            }
+        }
+    }
+
+    /// How the loop ended: an error when the subscription closed, so the
+    /// caller cannot mistake a dead consumer for a finished one.
+    pub fn finish(self) -> Result<(), ConsumerExit> {
+        if self.ended {
+            Err(ConsumerExit::SubscriptionClosed {
+                batches: self.batches,
+            })
+        } else {
+            Ok(())
+        }
+    }
+}
+
+// ── Supervisor (E-03) ───────────────────────────────────────────────────────
+
+/// Exponential backoff before restart attempt `attempt` (1-based):
+/// 1 s, 2 s, 4 s, … capped at 30 s.
+pub fn backoff(attempt: u32) -> std::time::Duration {
+    let secs = 1u64 << attempt.saturating_sub(1).min(5);
+    std::time::Duration::from_secs(secs.min(30))
+}
+
+/// Where a supervised consumer is in its life (B-05): held before its
+/// first run, running, waiting out a backoff, or finished on purpose.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ConsumerState {
+    #[default]
+    PendingStart,
+    Running,
+    Backoff,
+    Finished,
+}
+
+/// What health reports per supervised consumer (E-04, H-05).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize)]
+pub struct ConsumerHealth {
+    pub alive: bool,
+    pub state: ConsumerState,
+    pub restarts: u32,
+    pub last_restart: Option<String>,
+    pub last_exit: Option<String>,
+    /// Batches waiting in the consumer's channel at its last receive (H-05).
+    pub lag: u64,
+    /// Batches this actor has been handed since the process started (B-11):
+    /// a restart that resumes reads only what it had not acknowledged, so
+    /// this grows by the new messages, not by the stream.
+    pub delivered: u64,
+}
+
+/// Process-wide restart bookkeeping, read by `/api/health`.
+#[derive(Default)]
+pub struct SupervisorStats {
+    inner: std::sync::Mutex<std::collections::HashMap<&'static str, ConsumerHealth>>,
+}
+
+impl SupervisorStats {
+    fn update(&self, actor: &'static str, f: impl FnOnce(&mut ConsumerHealth)) {
+        let mut g = self.inner.lock().unwrap_or_else(|e| e.into_inner());
+        f(g.entry(actor).or_default());
+    }
+
+    pub fn snapshot(&self) -> std::collections::HashMap<&'static str, ConsumerHealth> {
+        self.inner.lock().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+}
+
+pub fn stats() -> &'static SupervisorStats {
+    static STATS: std::sync::OnceLock<SupervisorStats> = std::sync::OnceLock::new();
+    STATS.get_or_init(SupervisorStats::default)
+}
+
+/// A boxed run of one consumer attempt.
+pub type ConsumerRun =
+    std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), ConsumerExit>> + Send>>;
+
+/// Own a consumer: run `start` and, whenever the run returns an error,
+/// log `event=consumer_restarted` at WARN with the attempt, the backoff,
+/// and the reason, wait (via `sleep`, injectable for tests), and run it
+/// again. A run that returns `Ok(())` ended on purpose and is not
+/// restarted. Restart counts and timestamps land in `stats()`.
+pub async fn supervise<F, S, SF>(actor: &'static str, start: F, sleep: S)
+where
+    F: FnMut() -> ConsumerRun + Send,
+    S: Fn(std::time::Duration) -> SF + Send,
+    SF: std::future::Future<Output = ()> + Send,
+{
+    supervise_after(actor, std::future::ready(()), start, sleep).await
+}
+
+/// `supervise`, held until `gate` resolves (B-05: the boot phase flipping
+/// to serving). While held, health shows the actor as `pending_start` and
+/// not alive; nothing has subscribed yet.
+pub async fn supervise_after<G, F, S, SF>(actor: &'static str, gate: G, mut start: F, sleep: S)
+where
+    G: std::future::Future<Output = ()> + Send,
+    F: FnMut() -> ConsumerRun + Send,
+    S: Fn(std::time::Duration) -> SF + Send,
+    SF: std::future::Future<Output = ()> + Send,
+{
+    stats().update(actor, |h| {
+        h.alive = false;
+        h.state = ConsumerState::PendingStart;
+    });
+    gate.await;
+    let mut attempt: u32 = 0;
+    loop {
+        stats().update(actor, |h| {
+            h.alive = true;
+            h.state = ConsumerState::Running;
+        });
+        let result = start().await;
+        stats().update(actor, |h| h.alive = false);
+        match result {
+            Ok(()) => {
+                stats().update(actor, |h| h.state = ConsumerState::Finished);
+                tracing::info!(
+                    event = "consumer_finished",
+                    actor,
+                    "consumer {actor} finished"
+                );
+                return;
+            }
+            Err(exit) => {
+                attempt += 1;
+                let delay = backoff(attempt);
+                let reason = exit.to_string();
+                tracing::warn!(
+                    event = "consumer_restarted",
+                    actor,
+                    attempt,
+                    backoff_ms = delay.as_millis() as u64,
+                    reason = %reason,
+                    "consumer {actor} died ({reason}); restart {attempt} in {}s",
+                    delay.as_secs()
+                );
+                stats().update(actor, |h| {
+                    h.state = ConsumerState::Backoff;
+                    h.restarts = attempt;
+                    h.last_restart = Some(chrono::Utc::now().to_rfc3339());
+                    h.last_exit = Some(reason.clone());
+                });
+                metrics::counter!("openstory_consumer_restarts_total", "actor" => actor)
+                    .increment(1);
+                sleep(delay).await;
+            }
+        }
+    }
+}

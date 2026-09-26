@@ -17,7 +17,7 @@
 
 mod helpers;
 
-use helpers::{make_event_with_id, test_state};
+use helpers::test_state;
 use open_story::cloud_event::CloudEvent;
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
 use open_story::server::ingest_events;

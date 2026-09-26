@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="currentColor" aria-hidden="true">
+  <!-- OpenStory mark: an open book as one closed silhouette.
+       The spine (x=32) is the mirror axis; the right page is the left page
+       reflected. The gutter is a hairline slit in the outline that vanishes
+       at 16px and appears at 64px and up. No interior strokes, no gradient. -->
+  <path d="M6 12C15 7 25 10 31 17L31 45Q32 47 33 45L33 17C39 10 49 7 58 12L58 47C49 43 39 45 32 53C25 45 15 43 6 47Z"/>
+</svg>

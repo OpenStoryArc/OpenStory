@@ -44,7 +44,7 @@ use serde::Deserialize;
 use serde_json::Value;
 
 use open_story_patterns::{PatternEvent, StructuralTurn};
-use open_story_store::event_store::{EventStore, SessionRow};
+use open_story_store::event_store::{EventStore, PresenceRow, SessionRow};
 use open_story_store::queries;
 
 /// A read-only `EventStore` backed by the OpenStory REST API.
@@ -363,26 +363,63 @@ impl EventStore for HttpEventStore {
     // ── Writes: this store is read-only. The MCP never calls these. ──
 
     async fn insert_event(&self, _session_id: &str, _event: &Value) -> Result<bool> {
-        Err(anyhow!("HttpEventStore is read-only: insert_event unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: insert_event unsupported"
+        ))
     }
 
     async fn insert_batch(&self, _session_id: &str, _events: &[Value]) -> Result<usize> {
-        Err(anyhow!("HttpEventStore is read-only: insert_batch unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: insert_batch unsupported"
+        ))
     }
 
     async fn upsert_session(&self, _session: &SessionRow) -> Result<()> {
-        Err(anyhow!("HttpEventStore is read-only: upsert_session unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: upsert_session unsupported"
+        ))
     }
 
     async fn insert_pattern(&self, _session_id: &str, _pattern: &PatternEvent) -> Result<()> {
-        Err(anyhow!("HttpEventStore is read-only: insert_pattern unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: insert_pattern unsupported"
+        ))
     }
 
     async fn insert_turn(&self, _session_id: &str, _turn: &StructuralTurn) -> Result<()> {
-        Err(anyhow!("HttpEventStore is read-only: insert_turn unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: insert_turn unsupported"
+        ))
     }
 
     async fn upsert_plan(&self, _plan_id: &str, _session_id: &str, _content: &str) -> Result<()> {
-        Err(anyhow!("HttpEventStore is read-only: upsert_plan unsupported"))
+        Err(anyhow!(
+            "HttpEventStore is read-only: upsert_plan unsupported"
+        ))
+    }
+
+    async fn upsert_presence(&self, _row: &PresenceRow) -> Result<()> {
+        Err(anyhow!(
+            "HttpEventStore is read-only: upsert_presence unsupported"
+        ))
+    }
+
+    /// P-02 through REST: the latest beat per node, as `/api/fleet/presence`
+    /// reports it. The fleet_presence hand reads the endpoint directly; this
+    /// keeps the trait honest for any caller that goes through the store.
+    async fn latest_presence(&self) -> Result<Vec<PresenceRow>> {
+        let body: serde_json::Value = self.get("/api/fleet/presence", &[]).await?;
+        Ok(body["nodes"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .map(|n| PresenceRow {
+                host: n["host"].as_str().unwrap_or_default().to_string(),
+                principal_id: n["principal_id"].as_str().unwrap_or_default().to_string(),
+                person_id: n["person_id"].as_str().map(str::to_string),
+                time: n["time"].as_str().unwrap_or_default().to_string(),
+                body: n.get("body").cloned().unwrap_or(serde_json::Value::Null),
+            })
+            .collect())
     }
 }

@@ -15,6 +15,11 @@ RUN npm run build
 # ── Stage 2: Build Rust server ──
 FROM rust:1.88-slim AS rs-builder
 
+# Extra cargo flags for the final build. Empty builds the default feature
+# set (jemalloc, B-06). `--build-arg CARGO_BUILD_FLAGS=--no-default-features`
+# builds the glibc-allocator binary the boot-memory harness compares against.
+ARG CARGO_BUILD_FLAGS=""
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     pkg-config libssl-dev build-essential protobuf-compiler && \
     rm -rf /var/lib/apt/lists/*
@@ -68,12 +73,13 @@ COPY rs/mcp/benches/ mcp/benches/
 COPY rs/patterns/src/ patterns/src/
 COPY rs/schemas/src/ schemas/src/
 COPY rs/server/src/ server/src/
+COPY rs/server/build.rs server/build.rs
 COPY rs/store/src/ store/src/
 COPY rs/views/src/ views/src/
 RUN touch src/lib.rs bus/src/lib.rs cli/src/main.rs core/src/lib.rs \
     mcp/src/lib.rs patterns/src/lib.rs schemas/src/lib.rs server/src/lib.rs \
     store/src/lib.rs views/src/lib.rs && \
-    cargo build --release -p open-story-cli
+    cargo build --release -p open-story-cli $CARGO_BUILD_FLAGS
 
 # ── Stage 3: Runtime ──
 FROM debian:bookworm-slim

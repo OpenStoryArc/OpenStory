@@ -69,21 +69,21 @@ pub struct PermissionSet {
 }
 
 impl PermissionSet {
-    /// Observer profile: read-only. Can subscribe to `events.>` but
-    /// cannot publish anywhere.
+    /// Observer profile: read-only. Can subscribe to `events.>` and
+    /// `presence.>` (P-04) but cannot publish anywhere.
     pub fn observer() -> Self {
         Self {
             publish: vec![],
-            subscribe: vec!["events.>".into()],
+            subscribe: vec!["events.>".into(), "presence.>".into()],
         }
     }
 
-    /// Contributor profile: can publish AND subscribe under `events.>`
-    /// but cannot touch admin or control subjects.
+    /// Contributor profile: can publish AND subscribe under `events.>` and
+    /// `presence.>` (P-04) but cannot touch admin or control subjects.
     pub fn contributor() -> Self {
         Self {
-            publish: vec!["events.>".into()],
-            subscribe: vec!["events.>".into()],
+            publish: vec!["events.>".into(), "presence.>".into()],
+            subscribe: vec!["events.>".into(), "presence.>".into()],
         }
     }
 
@@ -300,9 +300,7 @@ mod tests {
             allowed_accounts: vec!["PERSON_KATIE".into()],
         });
         let out = render_accounts_block(&[max]);
-        assert!(out.contains(
-            "{ stream: \"events.session-X.>\", accounts: [PERSON_KATIE] }"
-        ));
+        assert!(out.contains("{ stream: \"events.session-X.>\", accounts: [PERSON_KATIE] }"));
     }
 
     #[test]
@@ -333,9 +331,9 @@ mod tests {
             to: None,
         });
         let out = render_accounts_block(&[max, katie]);
-        assert!(out.contains(
-            "{ stream: { account: PERSON_MAX, subject: \"events.session-X.>\" } }"
-        ));
+        assert!(
+            out.contains("{ stream: { account: PERSON_MAX, subject: \"events.session-X.>\" } }")
+        );
     }
 
     #[test]
@@ -382,7 +380,7 @@ mod tests {
             out.contains("publish: { deny: [\">\"] }"),
             "observer publish should be explicit deny; got:\n{out}"
         );
-        assert!(out.contains("subscribe: { allow: [\"events.>\"] }"));
+        assert!(out.contains("subscribe: { allow: [\"events.>\", \"presence.>\"] }"));
     }
 
     #[test]
@@ -390,8 +388,39 @@ mod tests {
         let mut acc = person_max();
         acc.users[0].permissions = Some(PermissionSet::contributor());
         let out = render_accounts_block(&[acc]);
-        assert!(out.contains("publish: { allow: [\"events.>\"] }"));
-        assert!(out.contains("subscribe: { allow: [\"events.>\"] }"));
+        assert!(out.contains("publish: { allow: [\"events.>\", \"presence.>\"] }"));
+        assert!(out.contains("subscribe: { allow: [\"events.>\", \"presence.>\"] }"));
+    }
+
+    /// P-04: presence crosses the hub alongside events, for readers and writers.
+    #[test]
+    fn observer_and_contributor_carry_presence_alongside_events() {
+        let observer = PermissionSet::observer();
+        assert!(
+            observer.subscribe.contains(&"presence.>".to_string()),
+            "{observer:?}"
+        );
+        assert!(
+            observer.publish.is_empty(),
+            "an observer still publishes nothing"
+        );
+        let contributor = PermissionSet::contributor();
+        assert!(
+            contributor.publish.contains(&"presence.>".to_string()),
+            "{contributor:?}"
+        );
+        assert!(contributor.subscribe.contains(&"presence.>".to_string()));
+        assert!(
+            contributor.publish.contains(&"events.>".to_string()),
+            "events stay granted"
+        );
+        let mut acc = person_max();
+        acc.users[0].permissions = Some(PermissionSet::contributor());
+        let out = render_accounts_block(&[acc]);
+        assert!(
+            out.contains("publish: { allow: [\"events.>\", \"presence.>\"] }"),
+            "rendered grant names both families; got:\n{out}"
+        );
     }
 
     #[test]
@@ -433,7 +462,7 @@ mod tests {
         assert!(out.contains("user: \"max-readonly\""));
         // Observer (last user) has explicit deny on publish.
         assert!(out.contains(
-            "user: \"max-readonly\", password: \"p3\", permissions: { publish: { deny: [\">\"] }, subscribe: { allow: [\"events.>\"] }"
+            "user: \"max-readonly\", password: \"p3\", permissions: { publish: { deny: [\">\"] }, subscribe: { allow: [\"events.>\", \"presence.>\"] }"
         ));
     }
 

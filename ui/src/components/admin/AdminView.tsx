@@ -19,6 +19,8 @@ import { TopologyMap } from "@/components/admin/TopologyMap";
 import { PersonClustersView } from "@/components/admin/PersonClustersView";
 import { ParticipantsPanel } from "@/components/admin/ParticipantsPanel";
 import { FleetGrid } from "@/components/admin/FleetGrid";
+import { FleetPresence } from "@/components/admin/FleetPresence";
+import { DoraTiles } from "@/components/admin/DoraTiles";
 import { LiveSourcesPanel } from "@/components/admin/LiveSourcesPanel";
 import { BetaBadge } from "@/components/admin/BetaBadge";
 import { DataSourceNote } from "@/components/admin/DataSourceNote";
@@ -122,6 +124,21 @@ export function AdminView() {
 
           <section className="mb-6 rounded-lg border border-[color:var(--bg-surface)] bg-[color:var(--bg)] p-4">
             <header className="mb-3">
+              <h3 className="text-sm font-medium text-[color:var(--text)]">DORA</h3>
+              <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
+                The four keys from this node's own presence history and git.
+              </p>
+              <DataSourceNote
+                endpoint="GET /api/dora"
+                derivation="scripts/dora.py --write reads data/presence.jsonl (one line per beat: sha, verdict) and git commit times; the node only serves the file"
+                kind="local"
+              />
+            </header>
+            <DoraTiles />
+          </section>
+
+          <section className="mb-6 rounded-lg border border-[color:var(--bg-surface)] bg-[color:var(--bg)] p-4">
+            <header className="mb-3">
               <h3 className="text-sm font-medium text-[color:var(--text)]">Fleet</h3>
               <p className="text-xs text-[color:var(--text-muted)] mt-0.5">
                 Every host this device has evidence of — self, hosts seen in
@@ -167,6 +184,7 @@ export function AdminView() {
                 </p>
               </HowItWorks>
             </header>
+            <FleetPresence selfHost={topology.nodes.find((n) => n.is_self)?.host ?? null} />
             <FleetGrid nodes={topology.nodes} />
           </section>
 

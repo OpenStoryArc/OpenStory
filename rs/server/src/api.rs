@@ -3,12 +3,12 @@
 use std::collections::HashMap;
 use std::path::Path;
 
-use axum::Json;
 use axum::extract::{Path as AxumPath, Query, State};
 use axum::http::StatusCode;
 use axum::response::{IntoResponse, Response};
+use axum::Json;
 use serde::Deserialize;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use chrono::{Timelike, Utc};
 use open_story_store::analysis::{activity_summary, session_summary, tool_call_distribution};
@@ -82,7 +82,10 @@ pub async fn post_control(
     let subject = crate::ui_events::ui_subject("control", &action, issuer.as_deref());
     let raw = json!({ "action": action.clone(), "params": params.clone(), "issuer": issuer.clone(), "at": at });
     let ce = crate::ui_events::ui_cloud_event("control", &action, VIEWING_SESSION, raw);
-    let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
+    let _ = s
+        .bus
+        .publish(&subject, &crate::ui_events::ui_batch(ce))
+        .await;
 
     let msg = BroadcastMessage::Control {
         action: action.clone(),
@@ -119,15 +122,32 @@ pub async fn post_interaction(
     State(state): State<SharedState>,
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
-    let view = body.get("view").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let view = body
+        .get("view")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     if view.is_empty() {
-        return (StatusCode::BAD_REQUEST, Json(json!({ "ok": false, "error": "view required" })));
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(json!({ "ok": false, "error": "view required" })),
+        );
     }
     let raw_kind = body.get("kind").and_then(|v| v.as_str()).unwrap_or("view");
-    let kind = if INTERACTION_KINDS.contains(&raw_kind) { raw_kind } else { "view" };
-    let target = body.get("session_id").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let kind = if INTERACTION_KINDS.contains(&raw_kind) {
+        raw_kind
+    } else {
+        "view"
+    };
+    let target = body
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let filters = body.get("filters").cloned().filter(|v| !v.is_null());
-    let issuer = body.get("issuer").and_then(|v| v.as_str()).map(|s| s.to_string());
+    let issuer = body
+        .get("issuer")
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
     let at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true);
 
     // The full interaction payload is the authored body (high-fidelity), stamped
@@ -142,14 +162,22 @@ pub async fn post_interaction(
     let event = serde_json::to_value(&ce).unwrap_or(Value::Null);
 
     let s = state.read().await;
-    let _ = s.store.event_store.insert_event(VIEWING_SESSION, &event).await;
+    let _ = s
+        .store
+        .event_store
+        .insert_event(VIEWING_SESSION, &event)
+        .await;
     // Publish onto the bus in the AUTHORED `ui.*` namespace (NEVER `events.*` —
     // that's the observed, read-only source) as a TYPED IngestBatch, so the
     // interaction stream is a first-class event source: the MCP subscribes
     // through the same typed pump as observed events, and it's replayable like
     // any other event. Best-effort — never blocks the response.
     let subject = crate::ui_events::ui_subject("interaction", kind, issuer.as_deref());
-    let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
+    let _ = s
+        .bus
+        .publish(&subject, &crate::ui_events::ui_batch(ce))
+        .await;
+    // audit-ok: no subscribers is not a failure
     let _ = s.broadcast_tx.send(BroadcastMessage::UiState {
         interaction: kind.to_string(),
         view,
@@ -165,7 +193,12 @@ pub async fn post_interaction(
 /// interaction event. This is what an agent reads to know "where the user is."
 pub async fn get_ui_state(State(state): State<SharedState>) -> Json<Value> {
     let s = state.read().await;
-    let events = s.store.event_store.session_events(VIEWING_SESSION).await.unwrap_or_default();
+    let events = s
+        .store
+        .event_store
+        .session_events(VIEWING_SESSION)
+        .await
+        .unwrap_or_default();
     // Unwrap the authored body from the CloudEvent's EventData.raw (tolerant of
     // legacy flat events too), so `where_is_user` sees {view, kind, at, …}.
     let latest = events
@@ -202,7 +235,12 @@ pub async fn get_ui_journey(
 ) -> Json<Value> {
     let n = q.n.unwrap_or(20).min(500);
     let s = state.read().await;
-    let events = s.store.event_store.session_events(VIEWING_SESSION).await.unwrap_or_default();
+    let events = s
+        .store
+        .event_store
+        .session_events(VIEWING_SESSION)
+        .await
+        .unwrap_or_default();
     // Take the last n events (chronological), preserving order — the journey is
     // meaningful only in sequence.
     let start = events.len().saturating_sub(n);
@@ -221,15 +259,27 @@ pub async fn post_annotation(
     State(state): State<SharedState>,
     Json(body): Json<Value>,
 ) -> impl IntoResponse {
-    let session_id = body.get("session_id").and_then(|v| v.as_str()).unwrap_or("").to_string();
-    let text = body.get("body").and_then(|v| v.as_str()).unwrap_or("").to_string();
+    let session_id = body
+        .get("session_id")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
+    let text = body
+        .get("body")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_string();
     if session_id.is_empty() || text.trim().is_empty() {
         return (
             StatusCode::BAD_REQUEST,
             Json(json!({ "ok": false, "error": "session_id and body are required" })),
         );
     }
-    let issuer = body.get("issuer").and_then(|v| v.as_str()).unwrap_or("anon").to_string();
+    let issuer = body
+        .get("issuer")
+        .and_then(|v| v.as_str())
+        .unwrap_or("anon")
+        .to_string();
     let ann = crate::annotations::Annotation {
         id: uuid::Uuid::new_v4().to_string(),
         session_id,
@@ -240,9 +290,15 @@ pub async fn post_annotation(
     let s = state.read().await;
     let dir = Path::new(&s.config.data_dir);
     if let Err(e) = crate::annotations::append_annotation(dir, &ann) {
-        return (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() })));
+        return (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": e.to_string() })),
+        );
     }
-    log_event("annotation", &format!("pinned to {}", short_id(&ann.session_id)));
+    log_event(
+        "annotation",
+        &format!("pinned to {}", short_id(&ann.session_id)),
+    );
     // Publish the authored annotation onto the `ui.*` namespace (overlay class,
     // NEVER `events.*`). The annotation is user/agent-authored overlay data, so
     // it's a first-class ui event like control + interaction — subscribable and
@@ -250,9 +306,18 @@ pub async fn post_annotation(
     let subject = crate::ui_events::ui_subject("annotation", "add", Some(&ann.issuer));
     let raw = serde_json::to_value(&ann).unwrap_or(Value::Null);
     let ce = crate::ui_events::ui_cloud_event("annotation", "add", VIEWING_SESSION, raw);
-    let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
-    let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationAdded { annotation: ann.clone() });
-    (StatusCode::OK, Json(json!({ "ok": true, "annotation": ann })))
+    let _ = s
+        .bus
+        .publish(&subject, &crate::ui_events::ui_batch(ce))
+        .await;
+    // audit-ok: no subscribers is not a failure
+    let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationAdded {
+        annotation: ann.clone(),
+    });
+    (
+        StatusCode::OK,
+        Json(json!({ "ok": true, "annotation": ann })),
+    )
 }
 
 /// `GET /api/annotations[?session_id=…]` — list overlay annotations.
@@ -290,16 +355,58 @@ pub async fn delete_annotation(
                 VIEWING_SESSION,
                 json!({ "id": id.clone() }),
             );
-            let _ = s.bus.publish(&subject, &crate::ui_events::ui_batch(ce)).await;
-            let _ = s.broadcast_tx.send(BroadcastMessage::AnnotationRemoved { id: id.clone() });
+            let _ = s
+                .bus
+                .publish(&subject, &crate::ui_events::ui_batch(ce))
+                .await;
+            let _ = s
+                .broadcast_tx
+                .send(BroadcastMessage::AnnotationRemoved { id: id.clone() });
             (StatusCode::OK, Json(json!({ "ok": true, "removed": id })))
         }
-        Ok(false) => (StatusCode::NOT_FOUND, Json(json!({ "ok": false, "error": "not found" }))),
-        Err(e) => (StatusCode::INTERNAL_SERVER_ERROR, Json(json!({ "ok": false, "error": e.to_string() }))),
+        Ok(false) => (
+            StatusCode::NOT_FOUND,
+            Json(json!({ "ok": false, "error": "not found" })),
+        ),
+        Err(e) => (
+            StatusCode::INTERNAL_SERVER_ERROR,
+            Json(json!({ "ok": false, "error": e.to_string() })),
+        ),
     }
 }
 
-pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
+pub async fn node_health(State(state): State<SharedState>) -> (StatusCode, Json<Value>) {
+    let (status, body) = health_body(&state).await;
+    (status, Json(body))
+}
+
+/// The health body and its readiness status, shared by `/api/health` and
+/// the presence beat (P-01), so the fleet reads the same fact the operator
+/// does. Pure read; takes the state lock briefly.
+pub async fn health_body(state: &SharedState) -> (StatusCode, Value) {
+    // H-06: ask the local NATS monitor about leaf links, briefly, before
+    // taking the state lock. Unreachable monitor => connected false.
+    let (leaf_url, monitor) = {
+        let s = state.read().await;
+        (
+            s.config.nats_leaf_url.clone(),
+            crate::node_health::monitor_url(&s.config.nats_url),
+        )
+    };
+    let leafz: Option<Value> = if leaf_url.trim().is_empty() {
+        None
+    } else {
+        match reqwest::Client::builder()
+            .timeout(std::time::Duration::from_millis(500))
+            .build()
+        {
+            Ok(c) => match c.get(format!("{monitor}/leafz")).send().await {
+                Ok(r) => r.json::<Value>().await.ok(),
+                Err(_) => None,
+            },
+            Err(_) => None,
+        }
+    };
     let s = state.read().await;
     let sessions = s
         .store
@@ -310,24 +417,75 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
         .unwrap_or(0);
     let projections = s.store.projections.resident_sessions();
 
-    Json(json!({
-        "status": "ok",
+    // H-02 / H-03: the boot phase with replay progress; readiness is 503
+    // until the node serves, and the body still explains itself.
+    let boot = crate::boot::snapshot();
+    let status = if crate::boot::is_serving() {
+        StatusCode::OK
+    } else {
+        StatusCode::SERVICE_UNAVAILABLE
+    };
+    let mut body = json!({
+        "status": if status == StatusCode::OK { "ok" } else { "starting" },
+        "host": open_story_core::host::host(),
+        "boot": boot,
         "version": env!("CARGO_PKG_VERSION"),
+        // H-07: the change this node runs, and its body.
+        "git_sha": crate::node_health::git_sha(),
+        "built_at": crate::node_health::built_at(),
+        "data_dir": s.store.data_dir.to_string_lossy(),
+        "process": {
+            "pid": std::process::id(),
+            "rss_bytes": crate::node_health::process_rss_bytes(),
+            "uptime_secs": crate::node_health::uptime_secs(),
+            // B-06: which allocator this binary runs (jemalloc / system).
+            "allocator": crate::node_health::allocator(),
+            // B-07: cgroup v2 memory.max, null when unlimited or not in a cgroup.
+            "memory_limit_bytes": crate::node_health::process_memory_limit_bytes(),
+        },
         "store": {
             "backend": s.config.data_backend.to_string(),
             "sessions": sessions,
+            "size_bytes": crate::node_health::store_size_bytes(&s.store.data_dir),
         },
-        "bus": { "connected": s.bus.is_active() },
+        // E-07: down as well when a managed NATS child has been seen to exit.
+        "bus": { "connected": s.bus.is_active() && open_story_bus::health::nats_child_alive() },
         "projections": {
             "count": projections,
             "sessions": sessions,
-            // count covers every session ⇒ the read model is rehydrated.
-            // Goes false when a restart leaves projections un-rebuilt for
-            // source-less sessions (run `reproject`).
-            "fresh": projections >= sessions,
+            // The read model is rehydrated: the boot replay has walked every
+            // session (B-09 bounds what stays resident afterwards — an
+            // evicted projection rebuilds losslessly on access), or every
+            // session is resident. Goes false while a replay is still
+            // running or a restart left projections un-rebuilt (run
+            // `reproject`).
+            "fresh": crate::boot::is_serving() || projections >= sessions,
         },
         "watchers": s.watcher_diagnostics.snapshots().len(),
-    }))
+        // E-05: publish failures across all watchers since boot.
+        "publish_failures": s
+            .watcher_diagnostics
+            .snapshots()
+            .iter()
+            .map(|w| w.counters.publish_failures)
+            .sum::<u64>(),
+        // E-04: per-consumer supervision state (alive, restarts,
+        // last_restart, last_exit), from the supervisor's bookkeeping.
+        "consumers": crate::consumers::supervision::stats().snapshot(),
+        // H-04: per-stream bytes against the configured caps, from JetStream.
+        "streams": s.bus.stream_stats().await,
+        // P-06: the beat's own bookkeeping.
+        "presence": crate::presence::stats_json(s.config.presence_interval_secs),
+        // H-06: the leaf link and per-watcher detail.
+        "leaf": crate::node_health::leaf_report(&leaf_url, leafz.as_ref()),
+        "watchers_detail": crate::node_health::watcher_detail(
+            &s.watcher_diagnostics.snapshots(),
+            chrono::Utc::now(),
+        ),
+    });
+    // M-01: the node's own verdict, from the body it just built.
+    body["verdict"] = crate::node_health::verdict(&body);
+    (status, body)
 }
 
 /// Per-session convergence digests — the shared primitive for network health
@@ -335,9 +493,7 @@ pub async fn node_health(State(state): State<SharedState>) -> Json<Value> {
 /// stable event-id hash)`; a peer fetches this and diffs it against its own
 /// (see `fleet::diff_digests`) to learn which sessions are converged, missing,
 /// or diverged. Cheap and read-only. See `docs/research/node-and-network-health.md`.
-pub async fn session_digests(
-    State(state): State<SharedState>,
-) -> Result<Json<Value>, StatusCode> {
+pub async fn session_digests(State(state): State<SharedState>) -> Result<Json<Value>, StatusCode> {
     let s = state.read().await;
     let sessions = s
         .store
@@ -518,6 +674,29 @@ pub async fn list_sessions(
     }))
 }
 
+/// GET /api/logs?since=<seq>&actor=&level=&limit= — the node's recent log
+/// lines from the in-process ring (L-06). Oldest first, `next` is the last
+/// seq returned so a caller resumes with `since=next`.
+pub async fn get_logs(Query(q): Query<HashMap<String, String>>) -> Json<Value> {
+    let since = q
+        .get("since")
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(0);
+    let limit = q
+        .get("limit")
+        .and_then(|s| s.parse::<usize>().ok())
+        .unwrap_or(200)
+        .clamp(1, crate::logging::LogRing::DEFAULT_MAX_LINES);
+    let level = q.get("level").map(|l| l.to_ascii_uppercase());
+    let (lines, next) = crate::logging::ring().read(
+        since,
+        q.get("actor").map(String::as_str),
+        level.as_deref(),
+        limit,
+    );
+    Json(json!({ "lines": lines, "next": next }))
+}
+
 pub async fn list_watchers(State(state): State<SharedState>) -> Json<Value> {
     let diagnostics = {
         let s = state.read().await;
@@ -547,6 +726,58 @@ pub async fn list_local_info(State(_state): State<SharedState>) -> Json<Value> {
         "host": open_story_core::host::host(),
         "user": open_story_core::user::user(),
     }))
+}
+
+/// `GET /api/dora` — the four keys `scripts/dora.py --write` left in the
+/// data directory (D-06). 404 with the recipe until it exists.
+pub async fn get_dora(State(state): State<SharedState>) -> (StatusCode, Json<Value>) {
+    let path = state.read().await.store.data_dir.join("dora.json");
+    match std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<Value>(&s).ok())
+    {
+        Some(doc) => (StatusCode::OK, Json(doc)),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({
+                "error": "no dora.json in the data dir; run scripts/dora.py --write data/dora.json"
+            })),
+        ),
+    }
+}
+
+/// `POST /api/ops/{hand}` — a tier-1 hand (M-06): reproject, verify,
+/// catch_up, prune. Body: the hand's arguments plus `idempotency_key`,
+/// `author`, `evidence`. 503 while the node is not serving (M-07).
+pub async fn ops_hand(
+    State(state): State<SharedState>,
+    axum::extract::Path(hand): axum::extract::Path<String>,
+    Json(body): Json<Value>,
+) -> (StatusCode, Json<Value>) {
+    let (status, body) = crate::ops::run_hand(&state, &hand, body).await;
+    (status, Json(body))
+}
+
+/// `GET /api/fleet/presence` — every node's latest beat with its age and
+/// whether it has gone stale (P-03). The local node is in here too, read
+/// through the same table as everyone else.
+pub async fn get_fleet_presence(
+    State(state): State<SharedState>,
+) -> Result<Json<Value>, StatusCode> {
+    let (store, interval_secs) = {
+        let s = state.read().await;
+        (s.store.event_store.clone(), s.config.presence_interval_secs)
+    };
+    let rows = store.latest_presence().await.map_err(|e| {
+        crate::logging::failed("fleet_presence_read", &format!("{e:#}"));
+        StatusCode::INTERNAL_SERVER_ERROR
+    })?;
+    let nodes = crate::presence::fleet_view(&rows, chrono::Utc::now(), interval_secs);
+    Ok(Json(json!({
+        "interval_secs": interval_secs,
+        "stale_after_secs": interval_secs.max(1) * crate::presence::STALE_AFTER_BEATS as u64,
+        "nodes": nodes,
+    })))
 }
 
 /// `GET /api/fleet` — return the configured Person + their principals.
@@ -2134,7 +2365,7 @@ pub async fn get_session_records(
 ) -> Json<Value> {
     use open_story_views::from_cloud_event::from_cloud_event;
     use open_story_views::unified::RecordBody;
-    use open_story_views::wire_record::{TRUNCATION_THRESHOLD, WireRecord, truncate_payload};
+    use open_story_views::wire_record::{truncate_payload, WireRecord, TRUNCATION_THRESHOLD};
 
     let paginated = query.limit.is_some() || query.before_seq.is_some();
     log_event(
@@ -2188,11 +2419,9 @@ pub async fn get_session_records(
             record_estimate += chunk
                 .iter()
                 .filter(|e| {
-                    serde_json::from_value::<open_story_core::cloud_event::CloudEvent>(
-                        (*e).clone(),
-                    )
-                    .map(|ce| !from_cloud_event(&ce).is_empty())
-                    .unwrap_or(false)
+                    serde_json::from_value::<open_story_core::cloud_event::CloudEvent>((*e).clone())
+                        .map(|ce| !from_cloud_event(&ce).is_empty())
+                        .unwrap_or(false)
                 })
                 .count();
             collected.splice(0..0, chunk);
@@ -2270,8 +2499,7 @@ pub async fn get_session_records(
             // Parent lookup uses base id (strip fan-out suffix).
             let base_id = vr.id.split(':').next().unwrap_or(&vr.id).to_string();
             let parent_uuid = parent_map.get(&base_id).and_then(|p| p.clone());
-            let depth = projection_depth(&vr.id)
-                .unwrap_or_else(|| depth_of(&vr.id, &parent_map));
+            let depth = projection_depth(&vr.id).unwrap_or_else(|| depth_of(&vr.id, &parent_map));
 
             // Truncation: same rule as the pre-refactor to_wire_record.
             let (truncated, payload_bytes) = match &vr.body {
@@ -2421,7 +2649,11 @@ pub async fn get_reel(
     let s = state.read().await;
     match s.store.reel_store.load(&reel_id) {
         Some(reel) => Json(serde_json::to_value(reel).unwrap_or_default()).into_response(),
-        None => (StatusCode::NOT_FOUND, Json(json!({"error": "reel not found"}))).into_response(),
+        None => (
+            StatusCode::NOT_FOUND,
+            Json(json!({"error": "reel not found"})),
+        )
+            .into_response(),
     }
 }
 

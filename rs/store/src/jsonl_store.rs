@@ -107,6 +107,15 @@ impl EventStore for JsonlStore {
         Ok(vec![])
     }
 
+    /// Degraded backend: presence is kept nowhere; the bus stream still has it.
+    async fn upsert_presence(&self, _row: &crate::event_store::PresenceRow) -> Result<()> {
+        Ok(())
+    }
+
+    async fn latest_presence(&self) -> Result<Vec<crate::event_store::PresenceRow>> {
+        Ok(vec![])
+    }
+
     async fn upsert_plan(&self, _plan_id: &str, _session_id: &str, _content: &str) -> Result<()> {
         // No-op: plans not persisted in JSONL mode
         Ok(())

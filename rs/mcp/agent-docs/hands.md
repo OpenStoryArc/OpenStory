@@ -137,6 +137,18 @@ Live survey: `node scripts/nav_path.mjs` (event→turn, turn→sentence with
 `?details=1`, toolcall→file search, …). Expand sentence depth:
 `set { target: "story.details", open: true, sessionId, eventId }`.
 
+## Ops motions (the node you are reading from)
+
+Tier 0 hands read; tier 1 hands change only what is derived and leave a proposal on the bus; tier 2 is a proposal a person or the host carries out.
+
+| motion | hands |
+|---|---|
+| watch | `subscribe_health { interval_secs? }` → `notifications/openstory/health` on every verdict transition; `fleet_presence {}` → every node's latest beat with age and stale |
+| diagnose | `node_health {}` → the health body with the node's verdict (level, findings with ids); `node_logs { since?, actor?, level?, limit? }` → the log ring; `node_streams {}` → bytes against caps |
+| propose | tier 1: `node_reproject`, `node_verify`, `node_catch_up`, `node_prune` publish `ops.proposal.<hand>` with author, evidence (finding ids), and an idempotency key, then act; the node records `ops.command.<hand>`. Tier 2 (`restart_consumer`, `resize_stream`, `restart_nats`, `restart_node`) is a proposal with evidence, never an act |
+
+A finding id from `node_health` is the evidence a proposal cites. Silence from `subscribe_health` means nothing changed. Tier 1 hands refuse while the node is not serving.
+
 ## What not to do
 
 - Dump the entire `session_transcript` first when `session_story` would do

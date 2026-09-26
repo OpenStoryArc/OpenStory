@@ -1,0 +1,12 @@
+# Build context hygiene for Dockerfile / Dockerfile.prod (the images run
+# `npm ci` and `cargo build` themselves; nothing below belongs in the context).
+ui/node_modules
+ui/dist
+e2e/node_modules
+rs/target
+data
+data-*
+personal
+exports
+drafts
+.git

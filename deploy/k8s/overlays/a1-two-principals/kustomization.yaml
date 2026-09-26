@@ -1,0 +1,10 @@
+# Horizontal scale is by node (K-05): two principals are two Deployments
+# with their own PVCs, ConfigMaps, and hosts, hence their own subjects.
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: os-loop-a1
+
+resources:
+  - dev
+  - hub

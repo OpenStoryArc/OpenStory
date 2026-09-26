@@ -277,7 +277,7 @@ mod tests {
         // double-delivery from NATS at-least-once is absorbed transparently.
         let mut consumer = make_consumer();
         let ev = make_event("sess-dup", "message.user.prompt");
-        consumer.process_batch("sess-dup", &[ev.clone()]).await;
+        consumer.process_batch("sess-dup", std::slice::from_ref(&ev)).await;
         consumer.process_batch("sess-dup", &[ev]).await;
 
         let proj = consumer.projection("sess-dup").unwrap();

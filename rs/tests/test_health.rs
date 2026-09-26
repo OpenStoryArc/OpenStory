@@ -1,0 +1,352 @@
+//! H-02 / H-03: `/api/health` reports the boot phase with replay progress
+//! and answers 503 until the node is serving; `/health` is liveness and
+//! stays 200 whenever the process is up. Scoreboard: REQUIREMENTS.md
+
+mod helpers;
+
+use axum::body::Body;
+use axum::http::Request;
+use helpers::{body_json, send_request, test_state};
+use open_story_server::boot;
+use std::sync::Mutex;
+
+/// The boot state is process-wide; these specs set it and must not overlap.
+fn serial() -> std::sync::MutexGuard<'static, ()> {
+    static LOCK: Mutex<()> = Mutex::new(());
+    LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
+mod when_replay_is_running {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_reports_phase_and_progress() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_replaying(7, 20, 1500);
+
+        let req = Request::get("/api/health").body(Body::empty()).unwrap();
+        let resp = send_request(state.clone(), req).await;
+        let body = body_json(resp).await;
+        assert_eq!(body["boot"]["phase"], "replaying", "{body}");
+        assert_eq!(body["boot"]["replay"]["done"], 7);
+        assert_eq!(body["boot"]["replay"]["total"], 20);
+        assert_eq!(body["boot"]["replay"]["elapsed_ms"], 1500);
+
+        boot::set_serving();
+        let req = Request::get("/api/health").body(Body::empty()).unwrap();
+        let body = body_json(send_request(state, req).await).await;
+        assert_eq!(body["boot"]["phase"], "serving");
+        assert_eq!(
+            body["boot"]["replay"]["done"], 20,
+            "done equals total once serving"
+        );
+    }
+}
+
+mod when_replaying {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_returns_503_for_readiness_and_200_for_liveness() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_replaying(1, 10, 10);
+
+        let ready = send_request(
+            state.clone(),
+            Request::get("/api/health").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(ready.status(), 503, "not ready while replaying");
+        let body = body_json(ready).await;
+        assert_eq!(
+            body["boot"]["phase"], "replaying",
+            "the body still explains itself"
+        );
+
+        let live = send_request(
+            state.clone(),
+            Request::get("/health").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(live.status(), 200, "alive is alive");
+
+        boot::set_serving();
+        let ready = send_request(
+            state,
+            Request::get("/api/health").body(Body::empty()).unwrap(),
+        )
+        .await;
+        assert_eq!(ready.status(), 200);
+    }
+}
+
+// H-04: the health body carries per-stream stats (empty under the NoopBus;
+// the live numbers are proven in the bus crate against a scratch NATS).
+mod when_streams_exist {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_reports_bytes_against_caps() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        let body = body_json(
+            send_request(
+                state,
+                Request::get("/api/health").body(Body::empty()).unwrap(),
+            )
+            .await,
+        )
+        .await;
+        assert!(
+            body["streams"].is_array(),
+            "streams is always present: {body}"
+        );
+        assert_eq!(
+            body["streams"].as_array().unwrap().len(),
+            0,
+            "no JetStream behind the NoopBus"
+        );
+    }
+}
+
+// H-06: leaf configured / connected / hub (redacted) and per-watcher age
+// and publish failures.
+mod when_leaf_is_configured_but_down {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_reports_not_connected() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        state.write().await.config.nats_leaf_url =
+            "nats://secret-token@hub.example:7422".to_string();
+
+        let body = body_json(
+            send_request(
+                state,
+                Request::get("/api/health").body(Body::empty()).unwrap(),
+            )
+            .await,
+        )
+        .await;
+        let leaf = &body["leaf"];
+        assert_eq!(leaf["configured"], true, "{body}");
+        assert_eq!(
+            leaf["connected"], false,
+            "no NATS monitor answers under test: not connected"
+        );
+        assert_eq!(leaf["hub"], "hub.example:7422", "the token never appears");
+        assert!(
+            !body.to_string().contains("secret-token"),
+            "redacted everywhere: {body}"
+        );
+        assert!(
+            body["watchers_detail"].is_array(),
+            "per-watcher detail is always present: {body}"
+        );
+    }
+}
+
+mod when_leaf_is_not_configured {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_says_solo_without_a_hub() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        let body = body_json(
+            send_request(
+                state,
+                Request::get("/api/health").body(Body::empty()).unwrap(),
+            )
+            .await,
+        )
+        .await;
+        assert_eq!(body["leaf"]["configured"], false);
+        assert!(body["leaf"]["hub"].is_null());
+    }
+}
+
+// H-07: version, git sha, build time, data dir, store size, RSS, uptime.
+mod when_health_is_read {
+    use super::*;
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_stamps_version_and_sha() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        let body = body_json(
+            send_request(
+                state,
+                Request::get("/api/health").body(Body::empty()).unwrap(),
+            )
+            .await,
+        )
+        .await;
+
+        assert_eq!(body["version"], env!("CARGO_PKG_VERSION"));
+        let sha = body["git_sha"].as_str().expect("git_sha is a string");
+        assert!(
+            sha == "unknown" || (sha.len() >= 7 && sha.chars().all(|c| c.is_ascii_hexdigit())),
+            "{sha}"
+        );
+        let built = body["built_at"].as_str().expect("built_at is a string");
+        assert!(
+            chrono::DateTime::parse_from_rfc3339(built).is_ok(),
+            "RFC 3339: {built}"
+        );
+        assert_eq!(body["data_dir"], tmp.path().to_string_lossy().as_ref());
+        assert!(
+            body["store"]["size_bytes"].as_u64().unwrap() > 0,
+            "the SQLite file exists: {body}"
+        );
+        assert!(
+            body["process"]["rss_bytes"].as_u64().unwrap() > 1_000_000,
+            "a real process: {body}"
+        );
+        assert!(body["process"]["uptime_secs"].is_u64());
+        assert!(body["process"]["pid"].as_u64().unwrap() > 0);
+    }
+}
+
+/// M-01 (server half): the node computes its own verdict once, the way
+/// scripts/node_health_probe.py and the header dot do, and serves it on
+/// the health body so every reader agrees.
+mod when_the_verdict_is_computed {
+    use super::*;
+    use open_story_server::node_health::verdict;
+    use serde_json::json;
+
+    fn healthy() -> serde_json::Value {
+        json!({
+            "boot": {"phase": "serving", "replay": {"done": 3, "total": 3, "elapsed_ms": 1}},
+            "bus": {"connected": true},
+            "leaf": {"configured": true, "connected": true, "hub": "hub:7422"},
+            "projections": {"count": 3, "sessions": 3, "fresh": true},
+            "streams": [{"name": "events", "bytes": 10, "messages": 1, "max_bytes": 100, "percent": 0.1}],
+            "consumers": {"persist": {"alive": true, "restarts": 0, "lag": 0}},
+            "watchers_detail": [{"actor": "claude-code", "age_secs": 12, "publish_failures": 0}],
+            "publish_failures": 0,
+            "presence": {"beats": 10, "failures": 0, "last_error": null, "interval_secs": 15},
+        })
+    }
+
+    fn ids(v: &serde_json::Value) -> Vec<String> {
+        v["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["id"].as_str().unwrap().to_string())
+            .collect()
+    }
+
+    #[test]
+    fn it_ranks_like_the_probe() {
+        let ok = verdict(&healthy());
+        assert_eq!(ok["level"], "ok", "{ok}");
+        assert!(ok["findings"].as_array().unwrap().is_empty());
+
+        let mut b = healthy();
+        b["bus"]["connected"] = json!(false);
+        let v = verdict(&b);
+        assert_eq!(v["level"], "critical");
+        assert_eq!(ids(&v), ["bus_disconnected"]);
+        assert_eq!(v["findings"][0]["level"], "critical");
+        assert!(v["findings"][0]["text"].as_str().unwrap().contains("bus"));
+
+        let mut b = healthy();
+        b["leaf"]["connected"] = json!(false);
+        assert_eq!(ids(&verdict(&b)), ["leaf_down"]);
+
+        let mut b = healthy();
+        b["streams"][0]["percent"] = json!(0.7);
+        let v = verdict(&b);
+        assert_eq!(v["level"], "warn");
+        assert_eq!(ids(&v), ["stream_cap:events"]);
+        b["streams"][0]["percent"] = json!(0.9);
+        assert_eq!(verdict(&b)["level"], "critical");
+
+        let mut b = healthy();
+        b["consumers"]["persist"]["alive"] = json!(false);
+        b["consumers"]["persist"]["restarts"] = json!(3);
+        let v = verdict(&b);
+        assert_eq!(v["level"], "critical");
+        assert_eq!(ids(&v), ["consumer_dead:persist"], "a dead consumer is one finding, not two");
+
+        let mut b = healthy();
+        b["consumers"]["persist"]["restarts"] = json!(2);
+        assert_eq!(ids(&verdict(&b)), ["consumer_restarted:persist"]);
+        assert_eq!(verdict(&b)["level"], "warn");
+
+        let mut b = healthy();
+        b["watchers_detail"][0]["age_secs"] = json!(301);
+        assert_eq!(ids(&verdict(&b)), ["watcher_quiet:claude-code"]);
+        b["watchers_detail"][0]["age_secs"] = json!(3601);
+        assert_eq!(verdict(&b)["level"], "critical");
+
+        let mut b = healthy();
+        b["watchers_detail"][0]["publish_failures"] = json!(16);
+        assert_eq!(ids(&verdict(&b)), ["publish_failures:claude-code"]);
+
+        let mut b = healthy();
+        b["boot"]["phase"] = json!("replaying");
+        b["boot"]["replay"]["done"] = json!(1);
+        let v = verdict(&b);
+        assert_eq!(ids(&v), ["replaying"]);
+        assert!(v["findings"][0]["text"].as_str().unwrap().contains("1 of 3"));
+
+        let mut b = healthy();
+        b["projections"]["fresh"] = json!(false);
+        assert_eq!(ids(&verdict(&b)), ["projections_stale"]);
+
+        let mut b = healthy();
+        b["presence"]["failures"] = json!(2);
+        assert_eq!(ids(&verdict(&b)), ["presence_failures"]);
+
+        // Worst first: a critical outranks a warn in the list.
+        let mut b = healthy();
+        b["streams"][0]["percent"] = json!(0.75);
+        b["bus"]["connected"] = json!(false);
+        let v = verdict(&b);
+        assert_eq!(v["level"], "critical");
+        assert_eq!(ids(&v), ["bus_disconnected", "stream_cap:events"]);
+    }
+
+    #[tokio::test]
+    #[allow(clippy::await_holding_lock)]
+    async fn it_rides_on_the_health_body() {
+        let _serial = serial();
+        let tmp = tempfile::tempdir().unwrap();
+        let state = test_state(&tmp);
+        boot::set_serving();
+        let req = Request::get("/api/health").body(Body::empty()).unwrap();
+        let body = body_json(send_request(state, req).await).await;
+        // The test state's bus is a NoopBus, which is never connected.
+        assert_eq!(body["verdict"]["level"], "critical", "{}", body["verdict"]);
+        let ids: Vec<&str> = body["verdict"]["findings"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|f| f["id"].as_str().unwrap())
+            .collect();
+        assert!(ids.contains(&"bus_disconnected"), "{ids:?}");
+    }
+}

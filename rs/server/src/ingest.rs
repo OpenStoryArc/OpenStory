@@ -9,7 +9,7 @@ use std::sync::Arc;
 use crate::logging::log_event;
 use open_story_views::from_cloud_event::from_cloud_event;
 use open_story_views::unified::RecordBody;
-use open_story_views::wire_record::{TRUNCATION_THRESHOLD, WireRecord};
+use open_story_views::wire_record::{WireRecord, TRUNCATION_THRESHOLD};
 
 use open_story_core::cloud_event::CloudEvent;
 use open_story_store::analysis;
@@ -133,7 +133,9 @@ pub async fn ingest_events(
                 });
                 if let Some(content) = plan_content {
                     let timestamp = val.get("time").and_then(|v| v.as_str()).unwrap_or("");
-                    let _ = state.store.plan_store.save(session_id, &content, timestamp);
+                    if let Err(e) = state.store.plan_store.save(session_id, &content, timestamp) {
+                        crate::logging::failed("plan_save", &e);
+                    }
                     // Dual-write plan to EventStore
                     let plan_id = format!("plan:{}:{}", session_id, timestamp);
                     let _ = state
@@ -173,8 +175,12 @@ pub async fn ingest_events(
             // work. Under NATS, PersistConsumer owns these writes and
             // this block is skipped to keep the actor decomposition clean.
             if !state.bus.is_active() {
-                let _ = state.store.event_store.insert_event(session_id, &val).await;
-                let _ = state.store.session_store.append(session_id, &val);
+                if let Err(e) = state.store.event_store.insert_event(session_id, &val).await {
+                    crate::logging::failed("event_insert", &e);
+                }
+                if let Err(e) = state.store.session_store.append(session_id, &val) {
+                    crate::logging::failed("jsonl_append", &e);
+                }
                 for vr in from_cloud_event(ce).iter() {
                     if let Some(text) = open_story_store::extract::extract_text(vr) {
                         let rt = open_story_store::extract::record_type_str(&vr.body);
@@ -186,7 +192,6 @@ pub async fn ingest_events(
                     }
                 }
             }
-
 
             // BFF transform: CloudEvent → typed ViewRecords for the UI
             let view_records = from_cloud_event(ce);
@@ -364,6 +369,58 @@ pub struct ReplayContext {
     pub session_project_names: Arc<dashmap::DashMap<String, String>>,
 }
 
+/// One progress report from boot replay.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ReplayReport {
+    pub done: usize,
+    pub total: usize,
+    pub percent: u8,
+    pub elapsed_ms: u64,
+}
+
+/// Decides when boot replay says something: on every 10 % of sessions and
+/// whenever 5 s have passed since the last report (L-07). Pure: the caller
+/// supplies the clock, so the rule is testable without waiting.
+pub struct ReplayProgress {
+    total: usize,
+    started: std::time::Instant,
+    last_report_at: std::time::Instant,
+    last_percent_step: u8,
+}
+
+impl ReplayProgress {
+    pub const INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+
+    pub fn new(total: usize, now: std::time::Instant) -> Self {
+        ReplayProgress {
+            total,
+            started: now,
+            last_report_at: now,
+            last_percent_step: 0,
+        }
+    }
+
+    pub fn observe(&mut self, done: usize, now: std::time::Instant) -> Option<ReplayReport> {
+        let percent = (done * 100)
+            .checked_div(self.total)
+            .map_or(100, |p| p.min(100) as u8);
+        let step = percent / 10;
+        let by_percent = step > self.last_percent_step;
+        let by_time = now.duration_since(self.last_report_at) >= Self::INTERVAL;
+        if !(by_percent || by_time) {
+            return None;
+        }
+        self.last_percent_step = step;
+        self.last_report_at = now;
+        Some(ReplayReport {
+            done,
+            total: self.total,
+            percent,
+            elapsed_ms: now.duration_since(self.started).as_millis() as u64,
+        })
+    }
+}
+
 /// Rebuild in-memory projections + truncation cache from SQLite.
 ///
 /// Replays every event of every known session through the projection
@@ -382,11 +439,30 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
         .map(|r| r.id.clone())
         .collect();
     let mut total_events = 0;
+    let started = std::time::Instant::now();
+    let mut progress = ReplayProgress::new(session_ids.len(), started);
+    let mut done = 0usize;
+    crate::boot::set_replaying(0, session_ids.len(), 0);
 
     // One-time FTS5 backfill: if the index is empty, populate during replay.
     let fts_needs_backfill = ctx.event_store.fts_count().await.unwrap_or(0) == 0;
 
     for sid in &session_ids {
+        done += 1;
+        if let Some(r) = progress.observe(done, std::time::Instant::now()) {
+            crate::boot::set_replaying(r.done, r.total, r.elapsed_ms);
+            tracing::info!(
+                event = "replay_progress",
+                done = r.done,
+                total = r.total,
+                percent = r.percent,
+                elapsed_ms = r.elapsed_ms,
+                "replay {}/{} sessions ({}%)",
+                r.done,
+                r.total,
+                r.percent
+            );
+        }
         let events = ctx
             .event_store
             .session_events(sid)
@@ -396,6 +472,12 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
             continue;
         }
 
+        // B-09: the walk is pinned while it runs (a half-built projection is
+        // never an eviction victim) and never counts as an access, so once
+        // unpinned an out-of-window session is evictable the moment the
+        // budget says so; a session inside the window stays by its own
+        // timestamps. Everything evicted rebuilds losslessly on first access.
+        ctx.projections.pin_live(sid);
         for val in &events {
             open_story_store::state::detect_subagent_relationship(
                 val,
@@ -405,7 +487,7 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
             );
 
             ctx.projections
-                .append_or_insert(sid, |proj| proj.append(val));
+                .append_untouched(sid, |proj| proj.append(val));
 
             let view_records = match serde_json::from_value::<
                 open_story_core::cloud_event::CloudEvent,
@@ -448,7 +530,9 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
         // Dual-write the session projection to SQLite. Assembles a
         // SessionRow from the projection + the project_id / project_name
         // snapshot; no access to the live StoreState needed.
-        if let Some(proj) = ctx.projections.get(sid) {
+        // `peek`, not `get`: this read is the replay's own bookkeeping, not
+        // an access that should keep the session resident (B-09).
+        if let Some(proj) = ctx.projections.peek(sid) {
             let p = proj.value();
             let rows = p.timeline_rows();
             let first_event = rows.first().map(|r| r.timestamp.clone());
@@ -472,7 +556,9 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
                 person_id: None,
                 principal_id: None,
             };
-            let _ = ctx.event_store.upsert_session(&row).await;
+            if let Err(e) = ctx.event_store.upsert_session(&row).await {
+                crate::logging::failed("session_upsert", &e);
+            }
 
             // first_event/last_event above come from the full timeline,
             // which includes `file.snapshot` events whose `time` is
@@ -483,25 +569,25 @@ pub async fn replay_boot_sessions(ctx: &ReplayContext) {
             // reconciler. See `Subtype::time_is_synthesized`.
             let _ = ctx.event_store.recompute_session_bounds(sid).await;
         }
+        ctx.projections.unpin_live(sid);
     }
 
-    if total_events > 0 {
-        let fts_note = if fts_needs_backfill {
-            let fts_count = ctx.event_store.fts_count().await.unwrap_or(0);
-            format!(", FTS5 backfill: {fts_count} indexed")
-        } else {
-            String::new()
-        };
-        crate::logging::log_event(
-            "boot",
-            &format!(
-                "replayed {} events across {} sessions{}",
-                total_events,
-                session_ids.len(),
-                fts_note,
-            ),
-        );
-    }
+    let fts_indexed = if fts_needs_backfill {
+        ctx.event_store.fts_count().await.unwrap_or(0)
+    } else {
+        0
+    };
+    crate::boot::set_serving();
+    tracing::info!(
+        event = "replay_done",
+        sessions = session_ids.len(),
+        events = total_events,
+        fts_indexed,
+        elapsed_ms = started.elapsed().as_millis() as u64,
+        "replayed {} events across {} sessions",
+        total_events,
+        session_ids.len()
+    );
 }
 
 #[cfg(test)]
@@ -578,18 +664,16 @@ mod tests {
     #[tokio::test]
     async fn ingest_empty_events_returns_zero() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
-        let result = ingest_events(&mut state, "sess-1", &[], None).await;
+        let state = test_app_state(&tmp);
+        let result = ingest_events(&state, "sess-1", &[], None).await;
         assert_eq!(result.count, 0);
-        assert!(
-            state
-                .store
-                .event_store
-                .list_sessions()
-                .await
-                .unwrap()
-                .is_empty()
-        );
+        assert!(state
+            .store
+            .event_store
+            .list_sessions()
+            .await
+            .unwrap()
+            .is_empty());
     }
 
     #[tokio::test]
@@ -599,13 +683,13 @@ mod tests {
         // The projection's HashSet catches the duplicate and returns
         // AppendResult::empty(), so the broadcast loop skips the event.
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-dup-1", "hello");
 
-        let result1 = ingest_events(&mut state, "sess-1", &[event.clone()], None).await;
+        let result1 = ingest_events(&state, "sess-1", std::slice::from_ref(&event), None).await;
         assert_eq!(result1.count, 1);
 
-        let result2 = ingest_events(&mut state, "sess-1", &[event], None).await;
+        let result2 = ingest_events(&state, "sess-1", &[event], None).await;
         assert_eq!(
             result2.count, 0,
             "duplicate event should be skipped via projection seen_ids"
@@ -619,10 +703,10 @@ mod tests {
         // broadcast-only function. It does NOT write to EventStore,
         // SessionStore, or FTS. ALL persistence is Actor 1's job.
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-persist-1", "persist me");
 
-        ingest_events(&mut state, "sess-persist", &[event], None).await;
+        ingest_events(&state, "sess-persist", &[event], None).await;
 
         // EventStore: NOT written by ingest_events anymore.
         assert!(
@@ -657,10 +741,10 @@ mod tests {
     #[tokio::test]
     async fn ingest_associates_project_id() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-proj-1", "hello");
 
-        ingest_events(&mut state, "sess-proj", &[event], Some("my-project")).await;
+        ingest_events(&state, "sess-proj", &[event], Some("my-project")).await;
 
         assert_eq!(
             state
@@ -676,7 +760,7 @@ mod tests {
     #[tokio::test]
     async fn ingest_derives_project_from_cwd_fallback() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         let event = CloudEvent::new(
             "arc://test".to_string(),
@@ -701,7 +785,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "sess-cwd", &[event], None).await;
+        ingest_events(&state, "sess-cwd", &[event], None).await;
 
         assert!(
             state.store.session_projects.contains_key("sess-cwd"),
@@ -712,10 +796,10 @@ mod tests {
     #[tokio::test]
     async fn ingest_returns_enriched_change_for_durable_events() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         let event = make_user_prompt_event("evt-bc-1", "broadcast me");
-        let result = ingest_events(&mut state, "sess-bc", &[event], None).await;
+        let result = ingest_events(&state, "sess-bc", &[event], None).await;
 
         assert!(
             !result.changes.is_empty(),
@@ -745,7 +829,7 @@ mod tests {
     #[tokio::test]
     async fn ingest_returns_ephemeral_change_for_progress_events() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         let event = CloudEvent::new(
             "arc://test".to_string(),
@@ -769,7 +853,7 @@ mod tests {
             None,
         );
 
-        let result = ingest_events(&mut state, "sess-eph", &[event], None).await;
+        let result = ingest_events(&state, "sess-eph", &[event], None).await;
 
         assert!(
             !result.changes.is_empty(),
@@ -813,7 +897,7 @@ mod tests {
     #[tokio::test]
     async fn ingest_subagent_populates_parent_child_index() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         // Create an event where data.session_id differs from the ingest session_id.
         // This means "agent-456" is a subagent of "parent-123".
@@ -839,7 +923,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "agent-456", &[event], None).await;
+        ingest_events(&state, "agent-456", &[event], None).await;
 
         assert_eq!(
             state
@@ -864,7 +948,7 @@ mod tests {
     #[tokio::test]
     async fn ingest_normal_session_does_not_populate_parent_child() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         // Event where data.session_id matches the ingest session_id — normal session.
         let event = CloudEvent::new(
@@ -889,7 +973,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "sess-1", &[event], None).await;
+        ingest_events(&state, "sess-1", &[event], None).await;
 
         assert!(
             state.store.subagent_parents.is_empty(),
@@ -956,7 +1040,7 @@ mod tests {
         // (PersistConsumer). ingest_events is broadcast-only.
         use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         let mut payload = ClaudeCodePayload::new();
         payload.text = Some("find this phrase please".to_string());
@@ -978,7 +1062,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "sess-fts-dw", &[event], None).await;
+        ingest_events(&state, "sess-fts-dw", &[event], None).await;
 
         let results = state
             .store
@@ -998,7 +1082,7 @@ mod tests {
         // progress.* events. Neither ingest_events nor PersistConsumer
         // should index these.
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         // Build a progress.bash event — ephemeral by subtype
         let mut payload = open_story_core::event_data::ClaudeCodePayload::new();
@@ -1021,7 +1105,7 @@ mod tests {
             None,
         );
 
-        ingest_events(&mut state, "sess-eph", &[event], None).await;
+        ingest_events(&state, "sess-eph", &[event], None).await;
 
         let results = state
             .store
@@ -1044,14 +1128,14 @@ mod tests {
         // decomposition can swap the owner without silent behavior change.
         use open_story_views::wire_record::TRUNCATION_THRESHOLD;
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         // Build a tool_result with output > TRUNCATION_THRESHOLD so it
         // gets cached.
         let big = "x".repeat(TRUNCATION_THRESHOLD + 1000);
         let event = make_tool_result_event("evt-big-1", &big);
 
-        ingest_events(&mut state, "sess-dw", &[event], None).await;
+        ingest_events(&state, "sess-dw", &[event], None).await;
 
         // PayloadCache doesn't expose iteration; a non-zero resident byte count
         // proves the big tool_result was cached (nothing else is inserted here).
@@ -1116,7 +1200,7 @@ mod tests {
         // so sidebars / session lists get it without refetching.
         use open_story_core::event_data::{AgentPayload, ClaudeCodePayload};
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         let mut payload = ClaudeCodePayload::new();
         payload.text = Some("Implement the feature thing".to_string());
@@ -1138,7 +1222,7 @@ mod tests {
             None,
         );
 
-        let result = ingest_events(&mut state, "sess-label", &[event], None).await;
+        let result = ingest_events(&state, "sess-label", &[event], None).await;
         assert!(!result.changes.is_empty());
         match &result.changes[0] {
             BroadcastMessage::Enriched { session_label, .. } => {
@@ -1164,10 +1248,10 @@ mod tests {
         // decomposition they'll come from whatever projection Actor 4
         // reads. The test asserts the behavior, not the source.
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
         let event = make_assistant_event_with_tokens("evt-tok-1", "response text", 1000, 250);
 
-        let result = ingest_events(&mut state, "sess-tok", &[event], None).await;
+        let result = ingest_events(&state, "sess-tok", &[event], None).await;
         assert!(!result.changes.is_empty());
         match &result.changes[0] {
             BroadcastMessage::Enriched {
@@ -1192,13 +1276,13 @@ mod tests {
         // preserve event order. Decomposition must not reorder — UI
         // renders a linear timeline that depends on this.
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
 
         let events: Vec<CloudEvent> = (0..5)
             .map(|i| make_user_prompt_event(&format!("evt-order-{i}"), &format!("msg {i}")))
             .collect();
 
-        let result = ingest_events(&mut state, "sess-order", &events, None).await;
+        let result = ingest_events(&state, "sess-order", &events, None).await;
 
         // Each durable event produces one Enriched message. Flatten the
         // WireRecord ids we receive and compare to input order.
@@ -1229,11 +1313,11 @@ mod tests {
         // endpoint currently serves, so the move can't silently break it.
         use open_story_views::wire_record::TRUNCATION_THRESHOLD;
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
         let big = "y".repeat(TRUNCATION_THRESHOLD + 500);
         let event = make_tool_result_event("evt-big-lazy-1", &big);
 
-        ingest_events(&mut state, "sess-lazy", &[event], None).await;
+        ingest_events(&state, "sess-lazy", &[event], None).await;
 
         // Mirror the endpoint's lookup sequence (api.rs::get_event_content).
         let cached = state
@@ -1336,10 +1420,10 @@ mod tests {
     #[tokio::test]
     async fn ingest_populates_projection() {
         let tmp = tempfile::tempdir().unwrap();
-        let mut state = test_app_state(&tmp);
+        let state = test_app_state(&tmp);
         let event = make_user_prompt_event("evt-proj-pop-1", "hello world");
 
-        ingest_events(&mut state, "sess-proj-pop", &[event], None).await;
+        ingest_events(&state, "sess-proj-pop", &[event], None).await;
 
         assert!(
             state.store.projections.contains("sess-proj-pop"),

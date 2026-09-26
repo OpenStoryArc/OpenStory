@@ -1,0 +1,30 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openstory-ops-agent
+  labels:
+    app.kubernetes.io/name: openstory-ops-agent
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openstory-ops-agent
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openstory-ops-agent
+    spec:
+      automountServiceAccountToken: false
+      containers:
+        - name: mcp
+          image: openstory
+          command: ["open-story-mcp"]
+          env:
+            - name: OPENSTORY_API_URL
+              value: http://openstory:3002
+          resources:
+            requests:
+              cpu: 50m
+              memory: 128Mi
+            limits:
+              memory: 512Mi

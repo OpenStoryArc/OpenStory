@@ -307,9 +307,9 @@ Each actor is a tokio task with independent failure domain. No shared RwLock bet
 
 **Pluggable EventStore backends.** The `open-story-store::event_store::EventStore` trait is the persistence seam. Two implementations ship:
 - **`SqliteStore`** — default. In-process, zero deps, single file at `{data_dir}/open-story.db`.
-- **`MongoStore`** — feature-gated behind `open-story-store/mongo`. Mirrors the SQLite schema as six collections (`events`, `sessions`, `patterns`, `turns`, `plans`, `events_fts`) with a text index for `$text`-powered FTS. Selected via `data_backend = "mongo"` in `data/config.toml` or `OPEN_STORY_DATA_BACKEND=mongo`. Boot fails clearly if the feature isn't compiled in — never silently falls back.
+- **`MongoStore`** — feature-gated behind `open-story-store/mongo`. Mirrors the SQLite schema as seven collections (`events`, `sessions`, `patterns`, `turns`, `plans`, `presence`, `events_fts`) with a text index for `$text`-powered FTS. Selected via `data_backend = "mongo"` in `data/config.toml` or `OPEN_STORY_DATA_BACKEND=mongo`. Boot fails clearly if the feature isn't compiled in — never silently falls back.
 
-The conformance suite at `rs/store/tests/event_store_conformance.rs` runs the same 56 BDD-style helpers against both backends, so anything that passes on SQLite must pass on Mongo (and vice versa). The 56 helpers cover writes, reads, lifecycle, FTS, and **all 12 analytics queries** (synopsis, tool journey, file impact, errors, project pulse, tool evolution, efficiency, project context, recent files, productivity, token usage, daily token usage). When adding a third backend, add a `mod {backend}_backend` wrapper that calls the same helpers — the trait contract is the spec.
+The conformance suite at `rs/store/tests/event_store_conformance.rs` runs the same 64 BDD-style helpers against both backends, so anything that passes on SQLite must pass on Mongo (and vice versa). The 64 helpers cover writes, reads, lifecycle, FTS, and **all 12 analytics queries** (synopsis, tool journey, file impact, errors, project pulse, tool evolution, efficiency, project context, recent files, productivity, token usage, daily token usage). When adding a third backend, add a `mod {backend}_backend` wrapper that calls the same helpers — the trait contract is the spec.
 
 **Conformance is semantic per query, not byte-equal.** Each analytics query is tagged with one of three parity categories: **C1** strict equality (`assert_eq!`), **C2** canonical-sort then equality (when tie order is implementation-defined), **C3** API redesign (when a cosmetic field was doing too much work). Each backend implements each query in its native idiom — SQLite uses `json_extract` + `strftime` + `LIKE`, Mongo uses dotted-path access + `$dateFromString` + `$exists` — and the conformance suite enforces the answer, not the implementation. See `docs/research/mongo-analytics-parity-plan.md` §1.6 for the model and §1.7 for the SQLite-vs-Mongo pros/cons table that justifies it.
 
@@ -390,8 +390,9 @@ Config file: `data/config.toml` (auto-created with `open-story serve --init-conf
 | `watch_backfill_hours` | `24` | Hours of history to backfill from JSONL on first boot |
 | `truncation_threshold` | `100000` (100KB) | Payload size above which tool outputs are truncated |
 | `stale_threshold_secs` | `300` | Seconds of inactivity before session shows as stale |
-| `metrics_enabled` | `false` | Enable Prometheus `/metrics` endpoint |
+| `metrics_enabled` | `true` | Serve Prometheus `/metrics` (node gauges, cache gauges); set `false` to turn it off |
 | `retention_days` | `0` (no cleanup) | Auto-delete sessions older than N days on boot |
+| `consumers_start` | `serving` | When the consumer actors subscribe: `serving` (after the boot replay, so replay and the backlog never grow the heap at once) or `boot` (at once). Health shows `consumers.<name>.state = pending_start` while held. Env: `OPEN_STORY_CONSUMERS_START` |
 
 **Env var convention:** `OPEN_STORY_*` (e.g., `OPEN_STORY_PORT=8080`, `OPEN_STORY_API_TOKEN=secret`).
 

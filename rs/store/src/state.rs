@@ -54,20 +54,49 @@ pub fn detect_subagent_relationship(
     parents: &DashMap<String, String>,
     children: &DashMap<String, Vec<String>>,
 ) {
-    let Some(data_sid) = event
-        .get("data")
-        .and_then(|d| d.get("session_id"))
-        .and_then(|v| v.as_str())
-    else {
-        return;
-    };
-    if data_sid != own_session_id && !parents.contains_key(own_session_id) {
-        parents.insert(own_session_id.to_string(), data_sid.to_string());
+    if let Some(parent) = parent_session_of(event, own_session_id) {
+        record_subagent_parent(own_session_id, parent, parents, children);
+    }
+}
+
+/// Record `own_session_id` as a subagent of `parent`, once: the first
+/// parent seen wins, and the child is listed under the parent once. The
+/// boot pass (`session_boot_facts`) and live ingest
+/// (`detect_subagent_relationship`) both land here.
+pub fn record_subagent_parent(
+    own_session_id: &str,
+    parent: String,
+    parents: &DashMap<String, String>,
+    children: &DashMap<String, Vec<String>>,
+) {
+    if !parents.contains_key(own_session_id) {
+        parents.insert(own_session_id.to_string(), parent.clone());
         children
-            .entry(data_sid.to_string())
+            .entry(parent)
             .or_default()
             .push(own_session_id.to_string());
     }
+}
+
+/// Where an event names the session it belongs to: `data.session_id`.
+pub const SESSION_ID_FIELD_PATH: [&str; 2] = ["data", "session_id"];
+
+/// The parent link an event carries, if any: its `data.session_id` when
+/// that differs from the session's own id (a subagent's events name the
+/// parent). The one rule `detect_subagent_relationship` and the store
+/// backends' `session_boot_facts` share.
+pub fn parent_session_of(event: &serde_json::Value, own_session_id: &str) -> Option<String> {
+    parent_from_data_session_id(
+        own_session_id,
+        crate::analysis::value_at(event, &SESSION_ID_FIELD_PATH).and_then(|v| v.as_str()),
+    )
+}
+
+/// The parent rule on an already-projected `data.session_id`.
+pub fn parent_from_data_session_id(own_session_id: &str, data_sid: Option<&str>) -> Option<String> {
+    data_sid
+        .filter(|sid| *sid != own_session_id)
+        .map(str::to_string)
 }
 
 /// Store state — event storage, projections, patterns, and project resolution.
@@ -378,7 +407,13 @@ where
 /// The event store plus the disk-backed sidecars it's assembled alongside —
 /// named so `init_sidecar_stores`'s signature stays legible under clippy's
 /// `type_complexity` lint (5-tuple trips the default threshold).
-type SidecarStores = (Arc<dyn EventStore>, SessionStore, EventLog, PlanStore, ReelStore);
+type SidecarStores = (
+    Arc<dyn EventStore>,
+    SessionStore,
+    EventLog,
+    PlanStore,
+    ReelStore,
+);
 
 /// Internal helper used by the legacy sync constructors. Creates the
 /// SQLite-backed event store and the disk-backed sidecars in one shot.
@@ -402,7 +437,13 @@ fn init_sidecar_stores(data_dir: &Path, key: Option<&str>) -> Result<SidecarStor
             ))
         }
     };
-    Ok((event_store, session_store, event_log, plan_store, reel_store))
+    Ok((
+        event_store,
+        session_store,
+        event_log,
+        plan_store,
+        reel_store,
+    ))
 }
 
 #[cfg(test)]
@@ -443,13 +484,9 @@ mod tests {
     #[tokio::test]
     async fn with_backend_sqlite_works() {
         let tmp = TempDir::new().unwrap();
-        let state = StoreState::with_backend(
-            tmp.path(),
-            None,
-            BackendChoice::Sqlite,
-        )
-        .await
-        .expect("sqlite backend must always boot");
+        let state = StoreState::with_backend(tmp.path(), None, BackendChoice::Sqlite)
+            .await
+            .expect("sqlite backend must always boot");
         assert!(state.event_store.list_sessions().await.unwrap().is_empty());
     }
 
@@ -473,7 +510,12 @@ mod tests {
     /// A well-formed CloudEvent envelope (same shape `rebuild.rs`'s own tests
     /// use — the fields `CloudEvent` requires to deserialize). Kept minimal;
     /// `event_count()` only needs a parseable event per id.
-    fn test_event(id: &str, subtype: &str, time: &str, data: serde_json::Value) -> serde_json::Value {
+    fn test_event(
+        id: &str,
+        subtype: &str,
+        time: &str,
+        data: serde_json::Value,
+    ) -> serde_json::Value {
         serde_json::json!({
             "id": id,
             "specversion": "1.0",
@@ -524,7 +566,10 @@ mod tests {
         .await;
 
         assert!(state.projections.get("s1").is_none(), "starts cold");
-        let p = state.get_or_rebuild("s1").await.expect("rebuilt from store");
+        let p = state
+            .get_or_rebuild("s1")
+            .await
+            .expect("rebuilt from store");
         assert_eq!(p.event_count(), 1);
         drop(p);
         assert!(state.projections.contains("s1"), "now resident");
@@ -617,14 +662,21 @@ mod tests {
             !state.projections.contains("a"),
             "a evicted under budget pressure (cold, non-oversized)"
         );
-        assert!(state.projections.evictions() >= 1, "a real eviction happened");
+        assert!(
+            state.projections.evictions() >= 1,
+            "a real eviction happened"
+        );
 
         // …and the evicted session transparently reloads with its full count.
         let ra2 = state
             .get_or_rebuild("a")
             .await
             .expect("a transparently reloaded after eviction");
-        assert_eq!(ra2.event_count(), a_count, "reloaded projection is complete");
+        assert_eq!(
+            ra2.event_count(),
+            a_count,
+            "reloaded projection is complete"
+        );
         drop(ra2);
 
         // (b) The Important edge: a projection larger than the ENTIRE budget.

@@ -1,0 +1,121 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: openstory
+  labels:
+    app.kubernetes.io/name: openstory
+    app.kubernetes.io/component: node
+spec:
+  # One node is one principal: never more than one replica of the same
+  # store and subjects (K-05). Scale by adding a principal, not a replica.
+  replicas: 1
+  strategy:
+    type: Recreate
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: openstory
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: openstory
+        app.kubernetes.io/component: node
+    spec:
+      automountServiceAccountToken: false
+      securityContext:
+        fsGroup: 1000
+      containers:
+        - name: server
+          image: openstory
+          command: ["open-story"]
+          args:
+            - serve
+            - --host
+            - "0.0.0.0"
+            - --port
+            - "3002"
+            - --data-dir
+            - /data
+            - --watch-dir
+            - /watch
+            - --static-dir
+            - /static
+          env:
+            - name: NATS_URL
+              value: nats://127.0.0.1:4222
+            - name: OPEN_STORY_LOG_FORMAT
+              value: json
+            - name: OPEN_STORY_HOST
+              value: openstory-node
+          ports:
+            - name: http
+              containerPort: 3002
+          # K-02: liveness is the process; readiness is the node serving
+          # (503 while replaying); startup allows fifteen minutes of replay.
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: http
+            periodSeconds: 15
+          readinessProbe:
+            httpGet:
+              path: /api/health
+              port: http
+            periodSeconds: 10
+          startupProbe:
+            httpGet:
+              path: /health
+              port: http
+            failureThreshold: 180
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 250m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+          volumeMounts:
+            - name: store
+              mountPath: /data
+            - name: watch
+              mountPath: /watch
+            - name: config
+              mountPath: /data/config.toml
+              subPath: config.toml
+        - name: nats
+          image: nats:2.10-alpine
+          args: ["-c", "/etc/nats/nats-leaf.conf"]
+          env:
+            - name: NATS_LEAF_URL
+              valueFrom:
+                secretKeyRef:
+                  name: openstory-leaf
+                  key: NATS_LEAF_URL
+          ports:
+            - name: nats
+              containerPort: 4222
+            - name: monitor
+              containerPort: 8222
+          resources:
+            requests:
+              cpu: 100m
+              memory: 256Mi
+            limits:
+              memory: 768Mi
+          volumeMounts:
+            - name: jetstream
+              mountPath: /jetstream
+            - name: config
+              mountPath: /etc/nats/nats-leaf.conf
+              subPath: nats-leaf.conf
+      volumes:
+        - name: store
+          persistentVolumeClaim:
+            claimName: openstory-store
+        - name: jetstream
+          persistentVolumeClaim:
+            claimName: openstory-jetstream
+        - name: watch
+          emptyDir: {}
+        - name: config
+          configMap:
+            name: openstory-config

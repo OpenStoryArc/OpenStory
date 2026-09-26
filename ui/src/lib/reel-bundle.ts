@@ -27,6 +27,9 @@ export interface BundleSlide {
   readonly role: "opener" | "body" | "closer";
   readonly line: string;
   readonly caption: string | null;
+  /** The figure/diagram title from `visual.title`, when the author gave one.
+   *  Renderers use it as the part heading and image alt text. */
+  readonly title?: string;
   readonly anchor?: { readonly sessionId: string; readonly eventId: string };
   readonly stage: BundleStage;
   readonly ink?: readonly DrawStroke[];
@@ -123,6 +126,7 @@ export function buildBundle(
       role: s.role ?? "body",
       line: s.line,
       caption: captionFor(s),
+      ...(s.visual?.title ? { title: s.visual.title } : {}),
       ...(anchor ? { anchor } : {}),
       stage: sanitizeStage(stages.get(s.id) ?? defaultStage(s)),
       ...(slideInk && slideInk.length > 0 ? { ink: sanitizeStrokes(slideInk) } : {}),

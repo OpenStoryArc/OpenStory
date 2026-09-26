@@ -18,6 +18,85 @@ use open_story_patterns::{PatternEvent, StructuralTurn};
 
 use crate::queries;
 
+/// A node's presence beat as the store keeps it (P-02): who, when, and the
+/// health body it carried. `body` is the presence event's raw data.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PresenceRow {
+    pub host: String,
+    pub principal_id: String,
+    pub person_id: Option<String>,
+    /// The beat's time, RFC 3339 as the event carried it.
+    pub time: String,
+    pub body: Value,
+}
+
+/// The two facts the boot pass needs from a session, and nothing else
+/// (boot-pass plan, row B-01): who its parent is, when it is a subagent,
+/// and the working directory that names its project. Both sit in a
+/// session's first few events in practice, so a backend answers from a
+/// bounded window (`BootFacts::WINDOW` events by time) and no event body
+/// crosses the trait.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BootFacts {
+    /// `data.session_id` of the first event where it differs from the
+    /// session's own id — the subagent → parent convention
+    /// (`crate::state::detect_subagent_relationship`).
+    pub parent_session: Option<String>,
+    /// The first working directory any event carries
+    /// (`crate::analysis::extract_cwd`).
+    pub cwd: Option<String>,
+}
+
+impl BootFacts {
+    /// How many events, by time, a backend looks at.
+    pub const WINDOW: usize = 32;
+
+    /// Fold projected rows — `(data.session_id, cwd)` per event, oldest
+    /// first — into the facts: the first parent link and the first cwd.
+    /// Stops as soon as both are known.
+    pub fn fold<I, S, C>(own_session_id: &str, rows: I) -> BootFacts
+    where
+        I: IntoIterator<Item = (Option<S>, Option<C>)>,
+        S: AsRef<str>,
+        C: Into<String>,
+    {
+        let mut facts = BootFacts::default();
+        for (data_sid, cwd) in rows {
+            if facts.parent_session.is_none() {
+                facts.parent_session = crate::state::parent_from_data_session_id(
+                    own_session_id,
+                    data_sid.as_ref().map(AsRef::as_ref),
+                );
+            }
+            if facts.cwd.is_none() {
+                facts.cwd = cwd.map(Into::into);
+            }
+            if facts.parent_session.is_some() && facts.cwd.is_some() {
+                break;
+            }
+        }
+        facts
+    }
+
+    /// The facts from event bodies (the first `WINDOW`, oldest first) —
+    /// the in-memory reading a projected query must agree with.
+    pub fn from_events<'a>(
+        own_session_id: &str,
+        events: impl IntoIterator<Item = &'a Value>,
+    ) -> BootFacts {
+        Self::fold(
+            own_session_id,
+            events.into_iter().take(Self::WINDOW).map(|e| {
+                (
+                    crate::analysis::value_at(e, &crate::state::SESSION_ID_FIELD_PATH)
+                        .and_then(|v| v.as_str()),
+                    crate::analysis::extract_cwd(e),
+                )
+            }),
+        )
+    }
+}
+
 /// Summary row for a session — materialized from SessionProjection.
 #[derive(Debug, Clone, Serialize, Deserialize, schemars::JsonSchema)]
 pub struct SessionRow {
@@ -74,7 +153,6 @@ impl SessionRow {
     }
 }
 
-
 /// Persistence interface for events, sessions, patterns, and plans.
 ///
 /// Implementations:
@@ -114,6 +192,19 @@ pub trait EventStore: Send + Sync {
 
     /// Load all events for a session, ordered by timestamp.
     async fn session_events(&self, session_id: &str) -> Result<Vec<Value>>;
+
+    /// The boot pass's two facts for a session, from its first
+    /// `BootFacts::WINDOW` events by time. Backends answer this with a
+    /// projection and a limit; no event body crosses the trait.
+    ///
+    /// The default loads the session and reads the window in memory —
+    /// correct for every backend, and what the degraded JSONL store and
+    /// the MCP's HTTP store get. SQLite and Mongo override it with a
+    /// native query.
+    async fn session_boot_facts(&self, session_id: &str) -> Result<BootFacts> {
+        let events = self.session_events(session_id).await?;
+        Ok(BootFacts::from_events(session_id, &events))
+    }
 
     /// The most-recent `limit` events with `data.seq < before_seq` (all when
     /// `before_seq` is None), returned oldest-first by seq. This is the
@@ -186,6 +277,13 @@ pub trait EventStore: Send + Sync {
 
     /// Query structural turns for a session, ordered by turn_number.
     async fn session_turns(&self, session_id: &str) -> Result<Vec<StructuralTurn>>;
+
+    /// P-02: keep a node's latest presence beat. One row per (host,
+    /// principal); a newer beat replaces the older. Never an event row.
+    async fn upsert_presence(&self, row: &PresenceRow) -> Result<()>;
+
+    /// P-02: the latest presence beat of every node that has reported.
+    async fn latest_presence(&self) -> Result<Vec<PresenceRow>>;
 
     /// Store a plan.
     async fn upsert_plan(&self, plan_id: &str, session_id: &str, content: &str) -> Result<()>;
@@ -339,6 +437,12 @@ pub trait EventStore: Send + Sync {
                 .await?;
         }
         Ok(())
+    }
+
+    /// M-06 verify: FTS documents indexed for one session, or `None` when
+    /// the backend cannot say.
+    async fn fts_count_for_session(&self, _session_id: &str) -> Result<Option<u64>> {
+        Ok(None)
     }
 
     /// Full-text search across indexed events.

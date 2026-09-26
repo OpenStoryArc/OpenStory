@@ -1,5 +1,11 @@
 //! Shared test helpers for integration tests.
+//!
+//! Every test binary includes this module; not every binary uses every
+//! helper, so dead-code warnings here are noise, not a signal.
+#![allow(dead_code)]
 
+#[allow(dead_code)]
+pub mod boot_gate;
 #[allow(dead_code)]
 pub mod bus;
 #[allow(dead_code)]
@@ -11,6 +17,10 @@ pub mod k8s;
 #[allow(dead_code)]
 pub mod openclaw;
 #[allow(dead_code)]
+pub mod recording_bus;
+#[allow(dead_code)]
+pub mod recording_store;
+#[allow(dead_code)]
 pub mod synth;
 
 use std::collections::HashMap;
@@ -18,13 +28,13 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use axum::Router;
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use tempfile::TempDir;
-use tokio::sync::{RwLock, broadcast};
+use tokio::sync::{broadcast, RwLock};
 
 use open_story::cloud_event::CloudEvent;
 use open_story::event_data::{AgentPayload, ClaudeCodePayload, EventData};
-use open_story::server::{AppState, Config, SharedState, build_router};
+use open_story::server::{build_router, AppState, Config, SharedState};
 use open_story_bus::noop_bus::NoopBus;
 use open_story_store::state::StoreState;
 
@@ -64,6 +74,11 @@ pub fn test_state(tmp: &TempDir) -> SharedState {
 pub fn test_router(state: SharedState) -> Router {
     let config = Config::default();
     build_router(state, None, &config)
+}
+
+/// Build a router for an explicit config (metrics on, auth, and so on).
+pub fn test_router_with(state: SharedState, config: &Config) -> Router {
+    build_router(state, None, config)
 }
 
 /// Create a minimal valid CloudEvent.
