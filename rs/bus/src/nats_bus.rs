@@ -72,6 +72,10 @@ pub struct NatsBus {
             std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicU64>>,
         >,
     >,
+    /// Each stream's last sequence when `ensure_streams` ran — before this
+    /// process published anything (B-11: where `StartFrom::SinceBoot`
+    /// starts a durable that does not exist yet).
+    boot_marks: std::sync::Mutex<std::collections::HashMap<String, u64>>,
 }
 
 impl NatsBus {
@@ -148,6 +152,7 @@ impl NatsBus {
             client,
             federation,
             acked: Default::default(),
+            boot_marks: Default::default(),
             // K-08: the cap is a knob at the edge; the builders stay pure.
             events_cap: events_cap_from(
                 std::env::var("OPEN_STORY_EVENTS_MAX_BYTES").ok().as_deref(),
@@ -321,6 +326,25 @@ impl NatsBus {
             })
             .await
             .context("failed to create/get 'ui' JetStream stream")?;
+
+        // B-11: where "since boot" is, per stream a durable may read.
+        for name in [
+            "events",
+            "local",
+            "presence",
+            "events-mirror",
+            "presence-mirror",
+        ] {
+            if let Ok(mut st) = self.jetstream.get_stream(name).await {
+                if let Ok(info) = st.info().await {
+                    let seq = info.state.last_sequence;
+                    self.boot_marks
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(name.to_string(), seq);
+                }
+            }
+        }
 
         Ok(())
     }
@@ -516,9 +540,16 @@ impl NatsBus {
         // run was handed still wait for their ack (they would hold the
         // in-flight window until the ack wait expires) or its shape is not
         // ours: then it is recreated from its ack floor.
+        let boot_mark = self
+            .boot_marks
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(stream_name)
+            .copied();
         let mut start = first_start_policy(
             spec.first_start,
             floor.load(std::sync::atomic::Ordering::Relaxed),
+            boot_mark,
         );
         match stream.consumer_info(&spec.name).await {
             Ok(info) => {
@@ -696,8 +727,14 @@ pub const CONSUMER_INACTIVE_THRESHOLD: std::time::Duration =
 
 /// Where a durable that does not exist yet starts: after `acked` when this
 /// process already acknowledged up to it (the server lost the consumer
-/// mid-run), else the actor's first-start policy. Pure.
-pub fn first_start_policy(first: StartFrom, acked: u64) -> jetstream::consumer::DeliverPolicy {
+/// mid-run), else the actor's first-start policy; `SinceBoot` starts after
+/// `boot_mark`, the stream's last sequence before this process published
+/// (from now when it is unknown). Pure.
+pub fn first_start_policy(
+    first: StartFrom,
+    acked: u64,
+    boot_mark: Option<u64>,
+) -> jetstream::consumer::DeliverPolicy {
     use jetstream::consumer::DeliverPolicy;
     if acked > 0 {
         return DeliverPolicy::ByStartSequence {
@@ -706,6 +743,12 @@ pub fn first_start_policy(first: StartFrom, acked: u64) -> jetstream::consumer::
     }
     match first {
         StartFrom::All => DeliverPolicy::All,
+        StartFrom::SinceBoot => match boot_mark {
+            Some(mark) => DeliverPolicy::ByStartSequence {
+                start_sequence: mark + 1,
+            },
+            None => DeliverPolicy::New,
+        },
         StartFrom::New => DeliverPolicy::New,
         StartFrom::LastPerSubject => DeliverPolicy::LastPerSubject,
     }
@@ -2069,19 +2112,49 @@ mod durable_consumer_tests {
 
     #[test]
     fn a_new_durable_starts_at_the_actors_first_start() {
-        assert_eq!(first_start_policy(StartFrom::All, 0), DeliverPolicy::All);
-        assert_eq!(first_start_policy(StartFrom::New, 0), DeliverPolicy::New);
+        let mark = Some(9);
         assert_eq!(
-            first_start_policy(StartFrom::LastPerSubject, 0),
+            first_start_policy(StartFrom::All, 0, mark),
+            DeliverPolicy::All
+        );
+        assert_eq!(
+            first_start_policy(StartFrom::New, 0, mark),
+            DeliverPolicy::New
+        );
+        assert_eq!(
+            first_start_policy(StartFrom::LastPerSubject, 0, mark),
             DeliverPolicy::LastPerSubject
         );
     }
 
     #[test]
+    fn since_boot_starts_after_the_streams_mark_at_boot() {
+        assert_eq!(
+            first_start_policy(StartFrom::SinceBoot, 0, Some(9)),
+            DeliverPolicy::ByStartSequence { start_sequence: 10 }
+        );
+        assert_eq!(
+            first_start_policy(StartFrom::SinceBoot, 0, Some(0)),
+            DeliverPolicy::ByStartSequence { start_sequence: 1 },
+            "an empty stream at boot: everything published since"
+        );
+        assert_eq!(
+            first_start_policy(StartFrom::SinceBoot, 0, None),
+            DeliverPolicy::New,
+            "no mark: from now"
+        );
+    }
+
+    #[test]
     fn a_durable_the_server_lost_mid_run_starts_after_the_last_ack() {
-        for first in [StartFrom::All, StartFrom::New, StartFrom::LastPerSubject] {
+        for first in [
+            StartFrom::All,
+            StartFrom::SinceBoot,
+            StartFrom::New,
+            StartFrom::LastPerSubject,
+        ] {
             assert_eq!(
-                first_start_policy(first, 41),
+                first_start_policy(first, 41, Some(3)),
                 DeliverPolicy::ByStartSequence { start_sequence: 42 }
             );
         }

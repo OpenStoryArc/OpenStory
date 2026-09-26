@@ -25,19 +25,23 @@ pub mod supervision;
 ///   mirror) and anything the watcher published but this store never wrote
 ///   reach the store; its primary-key dedup makes re-reading what the store
 ///   already holds a cheap no-op, and the bus bounds how much is in flight.
-/// - `patterns`: new messages only. Its state grows with every session it
-///   sees (a pipeline per session and every pattern it ever detected, kept
-///   twice), so a whole-stream drain is memory the box does not have: inside
-///   512 MiB it was OOM-killed seven seconds into a 0.8 GB backlog, where
-///   persist alone drained it at a falling rss. Before B-11 every boot
-///   re-read the whole stream through it into the store (the inserts are
-///   idempotent), so an upgraded node already holds the history's patterns;
-///   what persist's first drain adds for the first time (fleet events a
-///   crash-looping node never stored) has none until they are re-derived.
-/// - `projections`: new messages only. Boot replay rebuilds the read model
-///   from the store, and the cache rebuilds any session it does not hold
-///   from the store on first access; folding the stream again would hydrate
-///   every session it touches, one after the other.
+/// - `patterns`: what was published since this process started — not the
+///   whole stream. Its state grows with every session it sees (a pipeline
+///   per session and every pattern it ever detected, kept twice), so a
+///   whole-stream drain is memory the box does not have: inside 512 MiB it
+///   was OOM-killed seven seconds into a 0.8 GB backlog, where persist alone
+///   drained it at a falling rss. Before B-11 every boot re-read the whole
+///   stream through it into the store (the inserts are idempotent), so an
+///   upgraded node already holds the history's patterns; what persist's
+///   first drain adds for the first time (fleet events a crash-looping node
+///   never stored) has none until they are re-derived. Since boot, not from
+///   now: the watcher publishes while the node boots, before any consumer
+///   exists, and those are sessions the store has not seen.
+/// - `projections`: since this process started, for the same boot window.
+///   Replay rebuilt the read model from the store as it was, and the cache
+///   rebuilds any session it does not hold from the store on first access;
+///   folding the whole stream again would hydrate every session it touches,
+///   one after the other.
 /// - `broadcast`: new messages only. It serves live WebSocket readers;
 ///   history reaches them over REST.
 /// - `presence`: the last beat on each subject. The table keeps one latest
@@ -46,6 +50,7 @@ pub fn durable_spec(actor: &str, host: &str) -> open_story_bus::DurableSpec {
     use open_story_bus::StartFrom;
     let first_start = match actor {
         "persist" => StartFrom::All,
+        "patterns" | "projections" => StartFrom::SinceBoot,
         "presence" => StartFrom::LastPerSubject,
         _ => StartFrom::New,
     };
@@ -65,8 +70,8 @@ mod durable_spec_tests {
         let host = "mac-mini";
         let cases = [
             ("persist", StartFrom::All),
-            ("patterns", StartFrom::New),
-            ("projections", StartFrom::New),
+            ("patterns", StartFrom::SinceBoot),
+            ("projections", StartFrom::SinceBoot),
             ("broadcast", StartFrom::New),
             ("presence", StartFrom::LastPerSubject),
         ];

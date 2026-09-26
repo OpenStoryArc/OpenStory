@@ -76,8 +76,11 @@ pub enum StartFrom {
     /// The whole stream: the actor is the only way what the stream holds
     /// reaches the store (persist, patterns).
     All,
-    /// Only what arrives from now: the actor's state is rebuilt from the
-    /// store (projections) or only serves live readers (broadcast).
+    /// What was published since this process started: the store was
+    /// replayed from what existed before, and the watcher publishes while
+    /// the node boots, before any consumer exists (projections, patterns).
+    SinceBoot,
+    /// Only what arrives from now: live readers only (broadcast).
     New,
     /// The last message on each subject: presence is a latest-beat table.
     LastPerSubject,
