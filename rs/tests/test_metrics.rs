@@ -101,6 +101,7 @@ mod when_node_metrics_are_rendered {
                 last_restart: None,
                 last_exit: None,
                 lag: 7,
+                delivered: 0,
             },
         );
         let node = metrics::NodeMetrics {

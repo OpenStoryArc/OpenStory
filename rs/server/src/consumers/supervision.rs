@@ -59,7 +59,10 @@ impl Driven {
                 self.batches += 1;
                 // H-05: what is still queued behind this batch.
                 let lag = self.rx.len() as u64;
-                stats().update(self.actor, |h| h.lag = lag);
+                stats().update(self.actor, |h| {
+                    h.lag = lag;
+                    h.delivered += 1;
+                });
                 Some(batch)
             }
             None => {
@@ -124,6 +127,10 @@ pub struct ConsumerHealth {
     pub last_exit: Option<String>,
     /// Batches waiting in the consumer's channel at its last receive (H-05).
     pub lag: u64,
+    /// Batches this actor has been handed since the process started (B-11):
+    /// a restart that resumes reads only what it had not acknowledged, so
+    /// this grows by the new messages, not by the stream.
+    pub delivered: u64,
 }
 
 /// Process-wide restart bookkeeping, read by `/api/health`.

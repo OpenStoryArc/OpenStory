@@ -5,6 +5,8 @@
 #![allow(dead_code)]
 
 #[allow(dead_code)]
+pub mod boot_gate;
+#[allow(dead_code)]
 pub mod bus;
 #[allow(dead_code)]
 pub mod compose;
