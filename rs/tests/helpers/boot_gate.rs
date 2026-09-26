@@ -420,7 +420,9 @@ pub async fn boot(stack: &Stack, fixture: &Fixture, opts: &BootOpts<'_>) -> Boot
             body["boot"]["replay"]["total"],
             lags.join(","),
         );
-        if line[8..] != last_line[8.min(last_line.len())..] || t0.elapsed().as_secs() % 15 == 0 {
+        if line[8..] != last_line[8.min(last_line.len())..]
+            || t0.elapsed().as_secs().is_multiple_of(15)
+        {
             eprintln!("{line}");
         }
         last_line = line;

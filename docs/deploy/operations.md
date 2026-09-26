@@ -45,7 +45,22 @@ test-container` runs `rs/tests/test_boot_memory_gate.rs`, which boots the
 production image against a synthetic store inside a 512 MiB cgroup with a
 NATS sidecar and asserts it serves with the read model bounded, no OOM kill,
 and no `memory_pressure` finding (row B-10 in
-`docs/research/openstory-as-node/2026-09-25-boot-pass-memory.md`).
+`docs/research/openstory-as-node/2026-09-25-boot-pass-memory.md`), and
+`rs/tests/test_consumer_drain_gate.rs`, which does the same with the store's
+events already sitting in the `events` stream as a backlog and asserts the
+consumers drain it and settle inside the box, and that a restart resumes
+(row B-11).
+
+The consumer actors read through durable JetStream consumers named
+`os-{actor}-{host}` (`persist`, `patterns`, `projections`, `broadcast`,
+`presence`; the host is `OPEN_STORY_HOST`, else the hostname), one per
+stream they read (`events`, `local`, and under federation `events-mirror`;
+`presence`, `presence-mirror`). A restart resumes from what each actor had
+not acknowledged. Set `OPEN_STORY_HOST` on containerized nodes: a hostname
+that changes on every recreate means new consumers each time (and a
+one-time full re-read by persist and patterns). A consumer idle for seven
+days is removed by the server; to retire one by hand,
+`nats consumer rm events os-persist-<host>` (and the same for the others).
 
 ## Rollback per host shape
 

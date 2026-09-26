@@ -125,7 +125,7 @@ async fn events_stream(bus: &NatsBus) -> (u64, u64) {
     (info.state.messages, info.state.bytes)
 }
 
-mod when_a_node_boots_on_a_stream_backlog_inside_512_mib {
+mod when_the_production_container_boots_on_a_stream_backlog_inside_512_mib {
     use super::*;
 
     #[tokio::test]

@@ -191,12 +191,11 @@ pub async fn run_server(
     // NATS JetStream is a hard requirement (commit 1.1). The four actors
     // unconditionally spawn; `bus.is_active()` gating is gone.
     //
-    // Historical events from JetStream reach the actors via their own
-    // `bus.subscribe("events.>")` calls — the durable-consumer semantics
-    // deliver the replay stream to each subscriber independently. The
-    // previous inline `bus.replay(...)` + `ingest_events` path was
-    // redundant (it processed the same events the actors would have
-    // received) and has been deleted. The Actor 1/2/3/4 subscriptions
+    // Events from JetStream reach the actors through their own durable
+    // consumers (B-11: `bus.subscribe_durable`, named per host and actor,
+    // acked after each batch is handled), so a restart re-reads only what an
+    // actor had not acknowledged; where a consumer that does not exist yet
+    // starts is `consumers::durable_spec`. The Actor 1/2/3/4 subscriptions
     // below are the sole ingestion route.
     // B-05: when the actors may subscribe. Parsed once; an unknown value
     // stops the boot with the two accepted words rather than picking one.
@@ -264,9 +263,20 @@ pub async fn run_server(
                                 shared_names,
                                 plan_store,
                             );
-                            match persist_bus.subscribe("events.>").await {
+                            match persist_bus
+                                .subscribe_durable(
+                                    "events",
+                                    "events.>",
+                                    &consumers::durable_spec(
+                                        "persist",
+                                        open_story_core::host::host(),
+                                    ),
+                                )
+                                .await
+                            {
                                 Ok(sub) => {
-                                    let mut driven = consumers::supervision::Driven::new(
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
                                         "persist",
                                         sub.receiver,
                                     );
@@ -286,6 +296,7 @@ pub async fn run_server(
                                         // The consumer logs the batch itself (L-03,
                                         // event=batch_persisted with session_id).
                                         let _ = result;
+                                        driven.handled().await;
                                     }
                                     // E-02: a closed subscription is an error, never a silent return.
                                     driven.finish()
@@ -323,11 +334,19 @@ pub async fn run_server(
                             open_story_store::persistence::PresenceLog::new(&presence_dir).ok();
                         Box::pin(async move {
                             match presence_bus
-                                .subscribe_stream("presence", "presence.>")
+                                .subscribe_durable(
+                                    "presence",
+                                    "presence.>",
+                                    &consumers::durable_spec(
+                                        "presence",
+                                        open_story_core::host::host(),
+                                    ),
+                                )
                                 .await
                             {
                                 Ok(sub) => {
-                                    let mut driven = consumers::supervision::Driven::new(
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
                                         "presence",
                                         sub.receiver,
                                     );
@@ -338,6 +357,7 @@ pub async fn run_server(
                                             &batch.events,
                                         )
                                         .await;
+                                        driven.handled().await;
                                     }
                                     driven.finish()
                                 }
@@ -379,9 +399,20 @@ pub async fn run_server(
                         let patterns_state = patterns_state.clone();
                         Box::pin(async move {
                             let mut actor = consumers::patterns::PatternsConsumer::new();
-                            match patterns_bus.subscribe("events.>").await {
+                            match patterns_bus
+                                .subscribe_durable(
+                                    "events",
+                                    "events.>",
+                                    &consumers::durable_spec(
+                                        "patterns",
+                                        open_story_core::host::host(),
+                                    ),
+                                )
+                                .await
+                            {
                                 Ok(sub) => {
-                                    let mut driven = consumers::supervision::Driven::new(
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
                                         "patterns",
                                         sub.receiver,
                                     );
@@ -467,6 +498,7 @@ pub async fn run_server(
                                             ),
                                             );
                                         }
+                                        driven.handled().await;
                                     }
                                     // E-02: a closed subscription is an error, never a silent return.
                                     driven.finish()
@@ -520,14 +552,26 @@ pub async fn run_server(
                                 shared_parents,
                                 shared_children,
                             );
-                            match projections_bus.subscribe("events.>").await {
+                            match projections_bus
+                                .subscribe_durable(
+                                    "events",
+                                    "events.>",
+                                    &consumers::durable_spec(
+                                        "projections",
+                                        open_story_core::host::host(),
+                                    ),
+                                )
+                                .await
+                            {
                                 Ok(sub) => {
-                                    let mut driven = consumers::supervision::Driven::new(
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
                                         "projections",
                                         sub.receiver,
                                     );
                                     while let Some(batch) = driven.next().await {
                                         actor.process_batch(&batch.session_id, &batch.events).await;
+                                        driven.handled().await;
                                     }
                                     // E-02: a closed subscription is an error, never a silent return.
                                     driven.finish()
@@ -568,9 +612,20 @@ pub async fn run_server(
                         let broadcast_bus = broadcast_bus.clone();
                         Box::pin(async move {
                             let mut consumer = consumers::broadcast::BroadcastConsumer::new();
-                            match broadcast_bus.subscribe("events.>").await {
+                            match broadcast_bus
+                                .subscribe_durable(
+                                    "events",
+                                    "events.>",
+                                    &consumers::durable_spec(
+                                        "broadcast",
+                                        open_story_core::host::host(),
+                                    ),
+                                )
+                                .await
+                            {
                                 Ok(sub) => {
-                                    let mut driven = consumers::supervision::Driven::new(
+                                    // B-11: acked after the batch is handled.
+                                    let mut driven = consumers::supervision::Driven::acked(
                                         "broadcast",
                                         sub.receiver,
                                     );
@@ -608,6 +663,7 @@ pub async fn run_server(
                                             // session's first batch yet — skip broadcast
                                             // this tick; the next batch will have a
                                             // snapshot and catch up.
+                                            driven.handled().await;
                                             continue;
                                         };
 
@@ -634,6 +690,7 @@ pub async fn run_server(
                                                 ),
                                             );
                                         }
+                                        driven.handled().await;
                                     }
                                     // E-02: a closed subscription is an error, never a silent return.
                                     driven.finish()

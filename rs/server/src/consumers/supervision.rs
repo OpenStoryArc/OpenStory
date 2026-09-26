@@ -7,7 +7,7 @@
 //! `finish` returns that as an error the supervisor (E-03) acts on. A
 //! consumer never disappears without a line.
 
-use open_story_bus::IngestBatch;
+use open_story_bus::{Acker, Delivery, IngestBatch};
 use tokio::sync::mpsc;
 
 /// Why a consumer loop returned.
@@ -32,10 +32,35 @@ impl std::fmt::Display for ConsumerExit {
 
 impl std::error::Error for ConsumerExit {}
 
+/// Where a driven actor's batches come from: a plain subscription, or a
+/// durable one whose batches carry their acknowledgement (B-11).
+enum Source {
+    Plain(mpsc::Receiver<IngestBatch>),
+    Acked(mpsc::Receiver<Delivery>),
+}
+
+impl Source {
+    async fn recv(&mut self) -> Option<(IngestBatch, Option<Acker>)> {
+        match self {
+            Source::Plain(rx) => rx.recv().await.map(|b| (b, None)),
+            Source::Acked(rx) => rx.recv().await.map(|d| (d.batch, Some(d.ack))),
+        }
+    }
+
+    fn len(&self) -> usize {
+        match self {
+            Source::Plain(rx) => rx.len(),
+            Source::Acked(rx) => rx.len(),
+        }
+    }
+}
+
 /// A consumer's subscription, driven batch by batch with the ending named.
 pub struct Driven {
     actor: &'static str,
-    rx: mpsc::Receiver<IngestBatch>,
+    rx: Source,
+    /// The acknowledgement of the batch the actor is handling (B-11).
+    pending: Option<Acker>,
     batches: u64,
     ended: bool,
 }
@@ -44,18 +69,44 @@ impl Driven {
     pub fn new(actor: &'static str, rx: mpsc::Receiver<IngestBatch>) -> Self {
         Driven {
             actor,
-            rx,
+            rx: Source::Plain(rx),
+            pending: None,
             batches: 0,
             ended: false,
         }
     }
 
+    /// Drive a durable subscription (B-11): each batch is acknowledged by
+    /// [`Driven::handled`] once the actor is done with it, so a restart
+    /// resumes after the last batch the actor finished, not the last one
+    /// the bus handed over.
+    pub fn acked(actor: &'static str, rx: mpsc::Receiver<Delivery>) -> Self {
+        Driven {
+            actor,
+            rx: Source::Acked(rx),
+            pending: None,
+            batches: 0,
+            ended: false,
+        }
+    }
+
+    /// The actor has handled the batch `next` returned: acknowledge it.
+    /// Nothing to do for a plain subscription.
+    pub async fn handled(&mut self) {
+        if let Some(ack) = self.pending.take() {
+            ack.ack().await;
+        }
+    }
+
     /// The next batch, or `None` once the subscription has ended. The
     /// ending is logged exactly once, at ERROR, with actor, reason, and the
-    /// number of batches handled before it.
+    /// number of batches handled before it. Asking for the next batch
+    /// acknowledges the previous one if the actor did not.
     pub async fn next(&mut self) -> Option<IngestBatch> {
+        self.handled().await;
         match self.rx.recv().await {
-            Some(batch) => {
+            Some((batch, ack)) => {
+                self.pending = ack;
                 self.batches += 1;
                 // H-05: what is still queued behind this batch.
                 let lag = self.rx.len() as u64;

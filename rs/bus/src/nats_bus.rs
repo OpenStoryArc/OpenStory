@@ -10,7 +10,9 @@ use async_trait::async_trait;
 use futures::StreamExt;
 use tokio::sync::mpsc;
 
-use crate::{Bus, BusSubscription, IngestBatch};
+use crate::{
+    Acker, Bus, BusSubscription, Delivery, DurableSpec, DurableSubscription, IngestBatch, StartFrom,
+};
 
 /// Federation mode configuration for `NatsBus`.
 ///
@@ -61,6 +63,15 @@ pub struct NatsBus {
     local_domain: Option<String>,
     client: async_nats::Client,
     federation: Option<Federation>,
+    /// The highest stream sequence each durable consumer of this process has
+    /// acknowledged, by `{stream}/{durable}` (B-11). When the server loses a
+    /// durable (deleted, or its stream recreated), the recreated consumer
+    /// starts after this instead of at its first-start policy.
+    acked: std::sync::Arc<
+        std::sync::Mutex<
+            std::collections::HashMap<String, std::sync::Arc<std::sync::atomic::AtomicU64>>,
+        >,
+    >,
 }
 
 impl NatsBus {
@@ -136,6 +147,7 @@ impl NatsBus {
             local_domain,
             client,
             federation,
+            acked: Default::default(),
             // K-08: the cap is a knob at the edge; the builders stay pure.
             events_cap: events_cap_from(
                 std::env::var("OPEN_STORY_EVENTS_MAX_BYTES").ok().as_deref(),
@@ -472,6 +484,263 @@ impl NatsBus {
     }
 }
 
+impl NatsBus {
+    /// B-11: a durable pull consumer named `spec.name` on `stream_name`,
+    /// filtered by `pattern`, pumping each message into `tx` with its
+    /// acknowledgement. The actor acks after handling, so a restart resumes
+    /// from what it had not acknowledged; the server lets at most
+    /// `CONSUMER_MAX_ACK_PENDING` messages be in flight, and each pull asks
+    /// for at most `PULL_BATCH` messages and `PULL_MAX_BYTES`, so a backlog
+    /// of any size drains at bounded memory.
+    async fn spawn_durable(
+        &self,
+        tx: mpsc::Sender<Delivery>,
+        stream_name: &str,
+        pattern: &str,
+        spec: &DurableSpec,
+    ) -> Result<tokio::task::JoinHandle<()>> {
+        let stream = self
+            .jetstream
+            .get_stream(stream_name)
+            .await
+            .with_context(|| format!("failed to get '{stream_name}' stream"))?;
+        let floor = {
+            let mut acked = self.acked.lock().unwrap_or_else(|e| e.into_inner());
+            acked
+                .entry(format!("{stream_name}/{}", spec.name))
+                .or_default()
+                .clone()
+        };
+
+        // An existing durable resumes where it is — unless messages a dead
+        // run was handed still wait for their ack (they would hold the
+        // in-flight window until the ack wait expires) or its shape is not
+        // ours: then it is recreated from its ack floor.
+        let mut start = first_start_policy(
+            spec.first_start,
+            floor.load(std::sync::atomic::Ordering::Relaxed),
+        );
+        match stream.consumer_info(&spec.name).await {
+            Ok(info) => {
+                if needs_reset(&info, pattern) {
+                    start = jetstream::consumer::DeliverPolicy::ByStartSequence {
+                        start_sequence: info.ack_floor.stream_sequence + 1,
+                    };
+                    eprintln!(
+                        "bus[{stream_name}]: event=bus_consumer_reset consumer={} \
+                         ack_pending={} ack_floor={}; recreating from the ack floor",
+                        spec.name, info.num_ack_pending, info.ack_floor.stream_sequence
+                    );
+                    stream
+                        .delete_consumer(&spec.name)
+                        .await
+                        .with_context(|| format!("failed to reset consumer {}", spec.name))?;
+                }
+            }
+            Err(e)
+                if matches!(
+                    e.kind(),
+                    ConsumerInfoErrorKind::NotFound | ConsumerInfoErrorKind::StreamNotFound
+                ) =>
+            {
+                eprintln!(
+                    "bus[{stream_name}]: event=bus_consumer_created consumer={} start={start:?}",
+                    spec.name
+                );
+            }
+            Err(e) => {
+                return Err(anyhow::anyhow!(e))
+                    .with_context(|| format!("failed to read consumer {}", spec.name))
+            }
+        }
+        let consumer = stream
+            .get_or_create_consumer(&spec.name, durable_config(&spec.name, pattern, start))
+            .await
+            .with_context(|| {
+                format!("failed to create durable {} on '{stream_name}'", spec.name)
+            })?;
+        let mut messages = consumer
+            .stream()
+            .max_messages_per_batch(PULL_BATCH)
+            .max_bytes_per_batch(PULL_MAX_BYTES)
+            .expires(std::time::Duration::from_secs(30))
+            .heartbeat(std::time::Duration::from_secs(5))
+            .messages()
+            .await
+            .with_context(|| format!("failed to pull from {} on '{stream_name}'", spec.name))?;
+
+        let label = format!("{stream_name}/{}", spec.name);
+        let client = self.client.clone();
+        Ok(tokio::spawn(async move {
+            loop {
+                // As in `spawn_consumer`: after a quiet spell, or a missed
+                // heartbeat, ask whether the consumer still exists; if the
+                // server lost it, end, and the actor's supervisor
+                // resubscribes (and recreates it after the last ack).
+                let next = match tokio::time::timeout(CONSUMER_QUIET_PROBE, messages.next()).await {
+                    Ok(Some(Err(e)))
+                        if matches!(
+                            e.kind(),
+                            jetstream::consumer::pull::MessagesErrorKind::MissingHeartbeat
+                        ) =>
+                    {
+                        None
+                    }
+                    Ok(next) => Some(next),
+                    Err(_quiet) => None,
+                };
+                let next = match next {
+                    Some(next) => next,
+                    None => match consumer.get_info().await {
+                        Err(e)
+                            if matches!(
+                                e.kind(),
+                                ConsumerInfoErrorKind::NotFound
+                                    | ConsumerInfoErrorKind::StreamNotFound
+                            ) =>
+                        {
+                            eprintln!(
+                                "bus[{label}]: event=bus_consumer_lost error={e}; ending the subscription"
+                            );
+                            break;
+                        }
+                        _ => continue,
+                    },
+                };
+                let msg = match next {
+                    Some(Ok(msg)) => msg,
+                    Some(Err(e)) => {
+                        eprintln!(
+                            "bus[{label}]: event=bus_consumer_lost error={e}; ending the subscription"
+                        );
+                        break;
+                    }
+                    None => break,
+                };
+                let seq = msg.info().map(|i| i.stream_sequence).unwrap_or(0);
+                let ack = NatsAck {
+                    client: client.clone(),
+                    reply: msg.reply.clone(),
+                    seq,
+                    floor: floor.clone(),
+                };
+                match serde_json::from_slice::<IngestBatch>(&msg.payload) {
+                    Ok(batch) => {
+                        let d = Delivery {
+                            batch,
+                            ack: Acker::nats(ack),
+                        };
+                        if tx.send(d).await.is_err() {
+                            break; // receiver dropped
+                        }
+                    }
+                    Err(e) => {
+                        // Nothing an actor can handle: acknowledge it so it
+                        // does not come back on every restart.
+                        eprintln!("bus[{label}]: failed to deserialize IngestBatch: {e}");
+                        ack.ack().await;
+                    }
+                }
+            }
+        }))
+    }
+}
+
+/// The acknowledgement of one JetStream message, held by the actor until it
+/// has handled the batch (B-11). Acking publishes to the message's reply
+/// subject, as `jetstream::Message::ack` does, without keeping the payload
+/// alive, and records the sequence as this process's resume point.
+pub struct NatsAck {
+    client: async_nats::Client,
+    reply: Option<async_nats::Subject>,
+    seq: u64,
+    floor: std::sync::Arc<std::sync::atomic::AtomicU64>,
+}
+
+impl NatsAck {
+    pub(crate) async fn ack(self) {
+        let Some(reply) = self.reply else {
+            return;
+        };
+        match self.client.publish(reply, "".into()).await {
+            Ok(()) => {
+                self.floor
+                    .fetch_max(self.seq, std::sync::atomic::Ordering::Relaxed);
+            }
+            Err(e) => eprintln!("bus: failed to ack message {}: {e}", self.seq),
+        }
+    }
+}
+
+/// Messages one durable consumer may have in flight, unacknowledged (B-11):
+/// handed to the actor, queued for it, or buffered by the client. A batch
+/// is up to a few MB decoded, so this is the whole memory bound of a drain.
+pub const CONSUMER_MAX_ACK_PENDING: i64 = 4;
+/// Messages one pull asks for.
+pub const PULL_BATCH: usize = 4;
+/// Bytes one pull asks for: one maximal publish.
+pub const PULL_MAX_BYTES: usize = PUBLISH_MAX_BYTES;
+/// Deliveries queued between the forwarders and the actor.
+pub const DELIVERY_QUEUE: usize = 2;
+/// How long a handed-out message may go unacknowledged before the server
+/// delivers it again. The in-flight window is small, so a minute is ample;
+/// a redelivery is harmless (every actor is idempotent by event id).
+pub const CONSUMER_ACK_WAIT: std::time::Duration = std::time::Duration::from_secs(60);
+
+/// A durable nobody has pulled from for this long is removed by the server,
+/// so a retired node, or a host renamed, leaves no consumer behind for
+/// good. A node down longer than this starts again at its first-start
+/// policy (persist and patterns re-read the stream once, bounded).
+pub const CONSUMER_INACTIVE_THRESHOLD: std::time::Duration =
+    std::time::Duration::from_secs(7 * 24 * 3600);
+
+/// Where a durable that does not exist yet starts: after `acked` when this
+/// process already acknowledged up to it (the server lost the consumer
+/// mid-run), else the actor's first-start policy. Pure.
+pub fn first_start_policy(first: StartFrom, acked: u64) -> jetstream::consumer::DeliverPolicy {
+    use jetstream::consumer::DeliverPolicy;
+    if acked > 0 {
+        return DeliverPolicy::ByStartSequence {
+            start_sequence: acked + 1,
+        };
+    }
+    match first {
+        StartFrom::All => DeliverPolicy::All,
+        StartFrom::New => DeliverPolicy::New,
+        StartFrom::LastPerSubject => DeliverPolicy::LastPerSubject,
+    }
+}
+
+/// The durable pull consumer config (B-11). Pure.
+pub fn durable_config(
+    name: &str,
+    pattern: &str,
+    start: jetstream::consumer::DeliverPolicy,
+) -> jetstream::consumer::pull::Config {
+    jetstream::consumer::pull::Config {
+        durable_name: Some(name.to_string()),
+        filter_subject: pattern.to_string(),
+        deliver_policy: start,
+        ack_policy: jetstream::consumer::AckPolicy::Explicit,
+        ack_wait: CONSUMER_ACK_WAIT,
+        max_ack_pending: CONSUMER_MAX_ACK_PENDING,
+        inactive_threshold: CONSUMER_INACTIVE_THRESHOLD,
+        ..Default::default()
+    }
+}
+
+/// Whether an existing durable must be recreated from its ack floor before
+/// this run reads it: messages a previous run was handed still wait for an
+/// ack (they would fill the in-flight window until the ack wait expires),
+/// or it is not the consumer this code creates (another filter, another
+/// in-flight bound, not a pull consumer). Pure.
+pub fn needs_reset(info: &jetstream::consumer::Info, pattern: &str) -> bool {
+    info.num_ack_pending > 0
+        || info.config.filter_subject != pattern
+        || info.config.max_ack_pending != CONSUMER_MAX_ACK_PENDING
+        || info.config.deliver_subject.is_some()
+}
+
 /// How long a forwarder's subscription may stay quiet before it asks the
 /// server whether its consumer still exists (one API call per quiet spell).
 const CONSUMER_QUIET_PROBE: std::time::Duration = std::time::Duration::from_secs(5);
@@ -652,6 +921,34 @@ impl Bus for NatsBus {
         }
         link_forwarders(forwarders);
         Ok(BusSubscription { receiver: rx })
+    }
+
+    async fn subscribe_durable(
+        &self,
+        stream: &str,
+        pattern: &str,
+        spec: &DurableSpec,
+    ) -> Result<DurableSubscription> {
+        // The same streams `subscribe` / `subscribe_stream` read, each through
+        // its own durable of the same name.
+        let mut sources: Vec<(String, String)> = vec![(stream.to_string(), pattern.to_string())];
+        if stream == "events" {
+            sources.push(("local".to_string(), "local.>".to_string()));
+        }
+        if self.federation.is_some() && MIRRORED_STREAMS.contains(&stream) {
+            sources.push((format!("{stream}-mirror"), pattern.to_string()));
+        }
+        let (tx, rx) = mpsc::channel(DELIVERY_QUEUE);
+        let mut forwarders = Vec::new();
+        for (name, filter) in &sources {
+            let spawned = self
+                .spawn_durable(tx.clone(), name, filter, spec)
+                .await
+                .with_context(|| format!("failed to spawn '{name}' durable {}", spec.name));
+            forwarders.push(abort_on_err(spawned, &forwarders)?);
+        }
+        link_forwarders(forwarders);
+        Ok(DurableSubscription { receiver: rx })
     }
 
     async fn replay(&self, pattern: &str) -> Result<Vec<IngestBatch>> {
@@ -1759,5 +2056,98 @@ mod publish_budget_tests {
             PUBLISH_MAX_BYTES,
             "an unknown limit reads as the cap"
         );
+    }
+}
+
+#[cfg(test)]
+mod durable_consumer_tests {
+    //! B-11: the pure pieces of the durable consumers — where a new one
+    //! starts, what it is configured with, and when an existing one is
+    //! recreated from its ack floor.
+    use super::*;
+    use jetstream::consumer::DeliverPolicy;
+
+    #[test]
+    fn a_new_durable_starts_at_the_actors_first_start() {
+        assert_eq!(first_start_policy(StartFrom::All, 0), DeliverPolicy::All);
+        assert_eq!(first_start_policy(StartFrom::New, 0), DeliverPolicy::New);
+        assert_eq!(
+            first_start_policy(StartFrom::LastPerSubject, 0),
+            DeliverPolicy::LastPerSubject
+        );
+    }
+
+    #[test]
+    fn a_durable_the_server_lost_mid_run_starts_after_the_last_ack() {
+        for first in [StartFrom::All, StartFrom::New, StartFrom::LastPerSubject] {
+            assert_eq!(
+                first_start_policy(first, 41),
+                DeliverPolicy::ByStartSequence { start_sequence: 42 }
+            );
+        }
+    }
+
+    #[test]
+    fn the_config_is_a_bounded_explicit_ack_pull_durable() {
+        let c = durable_config("os-persist-h", "events.>", DeliverPolicy::All);
+        assert_eq!(c.durable_name.as_deref(), Some("os-persist-h"));
+        assert_eq!(c.filter_subject, "events.>");
+        assert_eq!(c.deliver_policy, DeliverPolicy::All);
+        assert_eq!(c.ack_policy, jetstream::consumer::AckPolicy::Explicit);
+        assert_eq!(c.max_ack_pending, CONSUMER_MAX_ACK_PENDING);
+        assert_eq!(c.ack_wait, CONSUMER_ACK_WAIT);
+        assert_eq!(c.inactive_threshold, CONSUMER_INACTIVE_THRESHOLD);
+        assert!(
+            CONSUMER_MAX_ACK_PENDING as usize >= PULL_BATCH,
+            "one pull fits in the in-flight window"
+        );
+    }
+
+    fn info(ack_pending: usize, filter: &str, max_ack_pending: i64) -> jetstream::consumer::Info {
+        let mut v = serde_json::json!({
+            "stream_name": "events",
+            "name": "os-persist-h",
+            "created": "2026-09-26T00:00:00Z",
+            "config": {
+                "durable_name": "os-persist-h",
+                "deliver_policy": "all",
+                "ack_policy": "explicit",
+                "filter_subject": filter,
+                "max_ack_pending": max_ack_pending,
+            },
+            "delivered": {"consumer_seq": 10, "stream_seq": 10},
+            "ack_floor": {"consumer_seq": 8, "stream_seq": 8},
+            "num_ack_pending": ack_pending,
+            "num_redelivered": 0,
+            "num_waiting": 0,
+            "num_pending": 0,
+        });
+        v["cluster"] = serde_json::Value::Null;
+        serde_json::from_value(v).expect("consumer info")
+    }
+
+    #[test]
+    fn an_idle_durable_of_our_shape_is_resumed_as_it_is() {
+        assert!(!needs_reset(
+            &info(0, "events.>", CONSUMER_MAX_ACK_PENDING),
+            "events.>"
+        ));
+    }
+
+    #[test]
+    fn a_durable_still_holding_a_dead_runs_messages_is_recreated() {
+        assert!(needs_reset(
+            &info(3, "events.>", CONSUMER_MAX_ACK_PENDING),
+            "events.>"
+        ));
+    }
+
+    #[test]
+    fn a_durable_of_another_shape_is_recreated() {
+        assert!(needs_reset(
+            &info(0, "events.a.>", CONSUMER_MAX_ACK_PENDING),
+            "events.>"
+        ));
+        assert!(needs_reset(&info(0, "events.>", 1000), "events.>"));
     }
 }
